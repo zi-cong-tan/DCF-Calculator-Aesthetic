@@ -23,6 +23,7 @@ FLOWS = {
     'da': ['DepreciationDepletionAndAmortization', 'DepreciationAmortizationAndAccretionNet', 'DepreciationAndAmortization',
            'Depreciation'],  # last resort (Tesla tags only this): leaves out amortization, so D&A reads slightly low
     'capex': ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets'],
+    'amort': ['AmortizationOfIntangibleAssets'],  # for the EBITA margin; many companies don't tag it, then it stays empty
     'tax': ['IncomeTaxExpenseBenefit'],
     'interest': ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt', 'InterestAndDebtExpense'],
     'pretax': ['IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
@@ -123,12 +124,14 @@ def company(cik, ticker, spx, financial):
         v = lambda k: s[k].get(d, 0)
         return (v('ca') - v('cash') - v('sti')) - (v('cl') - v('debtc') - v('cp'))
 
+    opt = lambda x, d: None if x.get(d) is None else x[d] / m  # None when not reported, not 0
     hist = []
     for prev, d in zip(ends, ends[1:]):
         dn = nwc(d) - nwc(prev) if s['ca'].get(prev) and s['ca'].get(d) else None
         e, proxy = ebit(d)
         hist.append({'end': d, 'revenue': f['revenue'][d] / m, 'ebit': e / m, 'ebitProxy': proxy, 'da': f['da'].get(d, 0) / m,
-                     'capex': f['capex'].get(d, 0) / m, 'dnwc': None if dn is None else dn / m})
+                     'capex': f['capex'].get(d, 0) / m, 'dnwc': None if dn is None else dn / m,
+                     'interest': opt(f['interest'], d), 'amort': opt(f['amort'], d)})
     rates = [f['tax'][d] / f['pretax'][d] for d in ends[1:] if f['tax'].get(d) is not None and f['pretax'].get(d, 0) > 0]
 
     bal = max(q['cash']) if q['cash'] else None
