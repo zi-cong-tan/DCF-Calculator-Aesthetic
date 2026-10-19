@@ -53,9 +53,16 @@ Everything runs inside your own browser. There is no server and no account, and 
 
 ## Notes
 
+To refresh the SEC history (for example after new 10-Ks), run `SEC_CONTACT=you@example.com python3 tools/sec_history.py`. The SEC asks every request to name a contact email; it is sent only to the SEC and not saved. The script writes `data/history.json`, which the page reads. Browsers cannot call the SEC directly, so the site uses this saved file.
+
 Prices and the risk-free rate are as of mid-October 2026. This is a learning and analysis tool, not investment advice.
 
 ## Updates
+
+**October 19, 2026 (later)**: the page now follows the standard DCF order, based on feedback from LinkedIn:
+- **The answer stays on top**, then four numbered steps: revenue to unlevered free cash flow (with a steady-state terminal column), the discount rate build, the terminal value, and enterprise value to value per share.
+- **History from SEC filings.** Revenue, operating margin, capex, D&A and the change in working capital for the last three fiscal years, taken straight from each 10-K. Use it to check the reinvestment assumption.
+- **One average growth rate.** A button that spreads the same ten-year revenue growth evenly across all years. Reset undoes it.
 
 **October 19, 2026**: changes based on feedback from r/financialmodelling:
 - **Blended betas.** Each beta is now 0.67 × the 5-year regression beta + 0.33, instead of a judgment call. Values moved: Micron $642.59 → $589.64, Apple $148.68 → $151.20, Amazon $139.85 → $136.19, Tesla $22.97 → $26.39.
