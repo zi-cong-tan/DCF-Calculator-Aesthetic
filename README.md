@@ -35,7 +35,7 @@ Nothing is lost in the translation. The four bundled models match their source s
 ## How to use
 
 1. **Open it.** Go to **[zi-cong-tan.github.io/DCF-Calculator-Aesthetic/](https://zi-cong-tan.github.io/DCF-Calculator-Aesthetic/)**. Nothing to install or sign up for. (To use it offline, click the green **Code** button above, choose **Download ZIP**, and double-click `index.html`.)
-2. **Pick a company.** Click one of the buttons under the search bar, or type a name or ticker.
+2. **Pick a company.** Click one of the four worked examples under the search bar, or search **any S&P 500 company** by name or ticker. A searched company loads its reported figures from SEC filings and the last closing price, updated every weeknight. Its assumptions start as defaults from its own history (past growth, average margin, average reinvestment, a blended beta), so set them before trusting the value.
 3. **Read the answer.** The top row shows the value per share, the market price, and the long-run margin the price needs.
 4. **Change the assumptions.** Edit any box on the left. Percentages are typed as plain numbers (25 means 25%). Edited boxes are outlined and show the base value, and everything on the right updates as you type.
 5. **Stress-test it.** Click **Bear case** for a pessimistic version, or check the sensitivity grid to see the value across different discount rates and margins. **Reset to the base case** puts everything back.
@@ -53,11 +53,15 @@ Everything runs inside your own browser. There is no server and no account, and 
 
 ## Notes
 
-To refresh the SEC history (for example after new 10-Ks), run `SEC_CONTACT=you@example.com python3 tools/sec_history.py`. The SEC asks every request to name a contact email; it is sent only to the SEC and not saved. The script writes `data/history.json`, which the page reads. Browsers cannot call the SEC directly, so the site uses this saved file.
+**Company data.** `tools/build_data.py` pulls every S&P 500 company's 10-K and 10-Q figures from the SEC, the last close and five years of monthly prices (for beta), and the US 10-year Treasury yield. It writes `data/index.json` and one file per company in `data/co/`. A GitHub Action (`.github/workflows/data.yml`) runs it every weeknight after the US close; browsers cannot call the SEC directly, so the site reads these saved files. Banks and other companies without reported operating income are skipped, as an operating cash flow DCF does not fit them.
+
+**Running it yourself.** The SEC asks every request to name a contact email. Locally: `SEC_CONTACT=you@example.com python3 tools/build_data.py` (add tickers to rebuild only those). For your own fork's nightly run, add a repository secret named `SEC_CONTACT` (Settings → Secrets and variables → Actions). The email is sent only to the SEC and never saved in the repo.
 
 Prices and the risk-free rate are as of mid-October 2026. This is a learning and analysis tool, not investment advice.
 
 ## Updates
+
+**October 19, 2026 (evening)**: **search any S&P 500 company.** Reported figures come from SEC filings and the last close, refreshed every weeknight by a GitHub Action. Starting assumptions come from each company's own history and are labelled as defaults.
 
 **October 19, 2026 (later)**: the page now follows the standard DCF order, based on feedback from LinkedIn:
 - **The answer stays on top**, then four numbered steps: revenue to unlevered free cash flow (with a steady-state terminal column), the discount rate build, the terminal value, and enterprise value to value per share.

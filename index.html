@@ -55,6 +55,7 @@
   .chip small { font-weight: 500; font-size: 12.5px; }
   .chip[aria-pressed="true"] { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
   .chip[hidden] { display: none; }
+  .chip.live { background: none; border-style: dashed; }
   .empty { color: var(--muted); font-size: 14px; padding: 8px 2px; }
   .msg { font-size: 14px; padding: 10px 14px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--rule); }
   .msg.err { border-color: var(--warn); }
@@ -172,13 +173,13 @@
     <div class="cotop">
       <div class="search">
         <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l4 4"/></svg>
-        <input id="q" type="search" placeholder="Search by name or ticker" aria-label="Search companies" autocomplete="off">
+        <input id="q" type="search" placeholder="Search any S&amp;P 500 company by name or ticker" aria-label="Search companies" autocomplete="off">
       </div>
       <label class="btn" for="file">Import a DCF spreadsheet<input id="file" type="file" accept=".xlsx,.xlsm"></label>
       <button class="btn" id="add" type="button">Add a company by hand</button>
     </div>
     <div class="chips" id="chips" role="group" aria-label="Choose a company"></div>
-    <p class="empty" id="none" hidden>No company matches. Import its DCF spreadsheet or add it by hand.</p>
+    <p class="empty" id="none" hidden>No company matches. Search covers the S&amp;P 500; for anything else, import a DCF spreadsheet or add it by hand.</p>
     <p class="msg" id="msg" role="status"></p>
   </section>
 
@@ -224,7 +225,7 @@
         </section>
         <section class="card">
           <h2><span class="step">3</span>Terminal value</h2>
-          <p class="sub">The year after 2035, at steady state: reinvestment is just enough to grow at terminal growth (growth ÷ return on capital).</p>
+          <p class="sub">The year after the forecast, at steady state: reinvestment is just enough to grow at terminal growth (growth ÷ return on capital).</p>
           <div class="rows" id="tv"></div>
         </section>
       </div>
@@ -258,7 +259,7 @@
   </div>
 
   <footer>
-    Built on the DCF template: mid-year discounting, a part-year for 2026, and a terminal value in which reinvestment is growth ÷ return on capital.
+    Built on the DCF template: mid-year discounting, a part-year for the first forecast year, and a terminal value in which reinvestment is growth ÷ return on capital.
     The four bundled models match their spreadsheets in <code>examples/</code> to the cent. Imported spreadsheets must use the same template. Importing a newer version of a bundled model replaces it.
     Companies you import or add, and your edits, are kept in this browser only.
   </footer>
@@ -279,7 +280,7 @@
       <label>Last full-year operating margin <small>%</small><input name="m0" type="number" step="any" required></label>
       <label>Net cash <small>millions, negative for net debt</small><input name="netCash" type="number" step="any" required></label>
       <label>Total debt <small>millions</small><input name="debt" type="number" step="any" min="0" required value="0"></label>
-      <label>Valuation date <small>in 2026</small><input name="date" type="date" min="2026-01-01" max="2026-12-30" required value="2026-10-14"></label>
+      <label>Valuation date<input name="date" type="date" required value="2026-10-14"></label>
       <label>Risk-free rate <small>%, US 10-year</small><input name="rf" type="number" step="any" required value="5.22"></label>
       <label>Tax saving on interest <small>%, corporate tax rate</small><input name="tShield" type="number" step="any" required value="25"></label>
       <label class="full">How reinvestment is modelled
@@ -300,7 +301,7 @@ function dcf(f, a) {
   var ke = f.rf + a.beta * a.erp + a.crp;
   var wd = f.debt / (f.debt + f.price * f.shares);
   var wacc = ke * (1 - wd) + a.kd * (1 - f.tShield) * wd;
-  var d = f.date.split('-'), stub = (Date.UTC(2026, 11, 31) - Date.UTC(+d[0], d[1] - 1, +d[2])) / 864e5 / 365;
+  var d = f.date.split('-'), stub = (Date.UTC(+d[0], 11, 31) - Date.UTC(+d[0], d[1] - 1, +d[2])) / 864e5 / 365;
   var rev = f.rev0, prev = f.rev0, rows = [], pv = 0;
   for (var i = 0; i < 10; i++) {
     rev = prev * (1 + a.g[i]);
@@ -308,7 +309,7 @@ function dcf(f, a) {
     var inv = f.reinvest === 'pct' ? rev * a.inv : Math.max(0, rev - prev) / a.inv;
     var fcf = nopat - inv, share = i ? 1 : stub, t = i ? stub + i - 0.5 : stub / 2;
     var p = fcf * share / Math.pow(1 + wacc, t);
-    rows.push({ year: 2026 + i, g: a.g[i], rev: rev, m: a.m[i], ebit: ebit, nopat: nopat, inv: inv, fcf: fcf, pv: p });
+    rows.push({ year: +d[0] + i, g: a.g[i], rev: rev, m: a.m[i], ebit: ebit, nopat: nopat, inv: inv, fcf: fcf, pv: p });
     pv += p; prev = rev;
   }
   var revT = rev * (1 + a.tg), nopatT = revT * a.lr * (1 - a.taxT);
@@ -318,7 +319,7 @@ function dcf(f, a) {
   return { ke: ke, wd: wd, wacc: wacc, kdT: a.kd * (1 - f.tShield), revT: revT, nopatT: nopatT, fcfT: fcfT, tv: tv, rows: rows, pv: pv, pvTv: pvTv, ev: ev, tvShare: pvTv / ev, eq: eq, value: eq / f.shares,
            valid: wacc > a.tg && a.roic > 0 && (f.reinvest === 'pct' || a.inv > 0) };
 }
-// Moving the long-run margin moves the terminal margin and every margin from 2030 on by the same amount, as the sheets' grid does.
+// Moving the long-run margin moves the terminal margin and every margin from the fifth forecast year on by the same amount, as the sheets' grid does.
 function withLr(a, lr) { var dd = lr - a.lr, b = Object.assign({}, a, { lr: lr, m: a.m.slice() }); for (var i = 4; i < 10; i++) b.m[i] += dd; return b; }
 function impliedMargin(f, a) {
   var lo = -0.5, hi = 1.5;
@@ -395,6 +396,36 @@ function fromForm(v) {
   return co;
 }
 
+// Starting assumptions from the company's own filings; every one is a default to change.
+function fromLive(j) {
+  var h = j.history, last = h[h.length - 1], n = h.length - 1, clamp = function (v, lo, hi) { return Math.min(hi, Math.max(lo, v)); };
+  var avg = function (fn) { return h.reduce(function (s, y) { return s + fn(y); }, 0) / h.length; };
+  var cagr = n ? Math.pow(last.revenue / h[0].revenue, 1 / n) - 1 : 0.05, g1 = clamp(cagr, -0.05, 0.25), tg = 0.025;
+  var m = avg(function (y) { return y.ebit / y.revenue; }), ni = clamp(avg(function (y) { return (y.capex - y.da + (y.dnwc || 0)) / y.revenue; }), 0, 0.3);
+  var tax = j.taxRate != null && j.taxRate >= 0 && j.taxRate <= 0.4 ? Math.round(j.taxRate * 1000) / 1000 : 0.21;
+  var beta = j.betaRaw != null ? Math.round((0.67 * j.betaRaw + 0.33) * 100) / 100 : 1;
+  var ic = (j.equity || 0) + j.debt - j.cash, nopat = last.revenue * m * (1 - tax), roic = ic > 0 ? clamp(nopat / ic, 0.06, 0.5) : 0.5;
+  var f = { date: j.priceDate, price: j.price, shares: j.shares, rev0: last.revenue, m0: last.ebit / last.revenue, netCash: j.cash - j.debt, debt: j.debt,
+            rf: j.rf, tShield: 0.21, reinvest: 'pct', baseLabel: 'FY' + last.end.slice(0, 4) };
+  var co = { id: j.ticker, name: j.name, ticker: j.ticker, cur: '$', unit: 'USD millions', acc: '', fact: f, sheetValue: null, crpLabel: 'Country risk premium', live: true,
+    source: 'From SEC filings, ' + j.sector + '. Price at the ' + niceDate(j.priceDate) + ' close' + (h.some(function (y) { return y.ebitProxy; }) ? '. No operating profit line is reported, so it is pre-tax profit plus interest expense' : ''),
+    base: { beta: beta, erp: 0.045, crp: 0, kd: j.rf + 0.015, tax: tax, taxT: tax, inv: Math.round(ni * 1000) / 1000, tg: tg, roic: Math.round(roic * 1000) / 1000, lr: Math.round(m * 1000) / 1000,
+            g: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(function (i) { return Math.round((g1 + (tg - g1) * i / 9) * 1000) / 1000; }),
+            m: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(function () { return Math.round(m * 1000) / 1000; }) },
+    notes: { beta: j.betaRaw != null ? 'Default. 5-year monthly regression against the S&P 500 gives ' + j.betaRaw.toFixed(2) + '. Blended toward 1: 0.67 × raw + 0.33.' : 'Default: 1.0, the market average (not enough price history).',
+             erp: 'Default: the bundled models use 4.5%.', crp: 'None: US company.', kd: 'Default: risk-free rate plus 1.5%.',
+             tax: tax !== 0.21 || j.taxRate === 0.21 ? 'Default: average effective tax rate over the last ' + n + ' fiscal years, from the 10-Ks.' : 'Default: 21%, the US federal rate (the reported rate was unusable).',
+             g: 'Default: the last ' + n + '-year revenue growth rate (' + pc(cagr) + (g1 !== cagr ? ', capped at ' + pc(g1) : '') + ') fading in a straight line to terminal growth. No analyst estimates: set the first years yourself.',
+             m: 'Default: the average operating margin of the last ' + h.length + ' fiscal years, held flat. Change it if the company is at a peak or a trough.',
+             lr: 'Default: the same ' + h.length + '-year average margin.', inv: 'Default: average capex − D&A + working capital over the last ' + h.length + ' years, as a share of revenue (see the SEC history under step 1).',
+             tg: 'Default: 2.5%, as in the bundled models.', roic: ic > 0 ? 'Default: last year’s after-tax operating profit ÷ (equity + debt − cash), kept between 6% and 50%.' : 'Default: 50%. Equity is negative after buybacks, so the return on capital is very high.' } };
+  co.facts = factRows(co);
+  co.facts[0][0] = 'Price, ' + niceDate(f.date) + ' close';
+  co.facts[2][0] = 'Revenue, fiscal year to ' + niceDate(last.end);
+  co.facts[3][0] = 'Operating margin, same year';
+  return co;
+}
+
 // ---- formatting ----------------------------------------------------------------
 function num(v, d) { return v.toLocaleString('en-US', { maximumFractionDigits: d == null ? 0 : d }); }
 function money(c, v, d) { var s = v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); return c.cur.length > 1 ? s + ' ' + c.cur : c.cur + s; }
@@ -412,17 +443,43 @@ function store(k, v) {
 var LIST = BUNDLE.map(function (c) { return fromCells(c, 'Bundled example'); });
 var CUSTOM = store('custom') || [];
 // an imported or added company with the same ticker replaces the bundled one
-function all() { var ids = CUSTOM.map(function (c) { return c.id; }); return LIST.filter(function (c) { return ids.indexOf(c.id) < 0; }).concat(CUSTOM); }
+function all() {
+  var ids = CUSTOM.map(function (c) { return c.id; }), base = LIST.filter(function (c) { return ids.indexOf(c.id) < 0; }).concat(CUSTOM), have = base.map(function (c) { return c.id; });
+  return base.concat(LIVE.filter(function (c) { return have.indexOf(c.id) < 0; }));
+}
 function byId(id) { return all().filter(function (c) { return c.id === id; })[0]; }
-var C, A, HIST = null;
-fetch('data/history.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) { HIST = j; if (C && j) render(); }).catch(function () {});
+var C, A, INDEX = [], CO = {}, LIVE = [];
+function Y0() { return +C.fact.date.slice(0, 4); }
+// Nightly files from tools/build_data.py. The page still works without them (e.g. opened from disk).
+function loadCo(t) {
+  if (!CO[t]) CO[t] = fetch('data/co/' + encodeURIComponent(t) + '.json').then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+    .then(function (j) { CO[t].done = j; return j; });
+  return CO[t];
+}
+function loadLive(t) {
+  say('Loading ' + t + ' from SEC filings…');
+  loadCo(t).then(function (j) {
+    var co = fromLive(j); LIVE = LIVE.filter(function (c) { return c.id !== co.id; }).concat(co);
+    document.getElementById('q').value = ''; choose(co.id);
+    say('Loaded ' + co.name + '. Reported figures are locked; the assumptions are defaults from its own history, so set them before trusting the value.');
+  }).catch(function () { CO[t] = null; say('Could not load ' + t + '. Check your connection and try again.', 1); });
+}
+fetch('data/index.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+  if (!j) return;
+  INDEX = j.companies;
+  if (START && !byId(START) && INDEX.some(function (x) { return x[0] === START; })) loadLive(START); else if (C) choose(C.id);
+}).catch(function () {});
 
 function chips() {
   var q = document.getElementById('q').value.trim().toLowerCase(), shown = 0;
   document.getElementById('chips').innerHTML = all().map(function (c) {
     var hit = !q || (c.name + ' ' + c.ticker).toLowerCase().indexOf(q) >= 0; if (hit) shown++;
     return '<button type="button" class="chip" data-id="' + esc(c.id) + '" aria-pressed="' + (C && c.id === C.id) + '"' + (hit ? '' : ' hidden') + '>' + esc(c.name) + ' <small>' + esc(c.ticker) + '</small></button>';
-  }).join('');
+  }).join('') + (!q ? '' : INDEX.filter(function (x) { return !byId(x[0]) && (x[0] + ' ' + x[1]).toLowerCase().indexOf(q) >= 0; })
+    .sort(function (a, b) { return (b[0].toLowerCase() === q) - (a[0].toLowerCase() === q); }).slice(0, 8).map(function (x) {
+      shown++;
+      return '<button type="button" class="chip live" data-live="' + esc(x[0]) + '" title="Load from SEC filings">+ ' + esc(x[1]) + ' <small>' + esc(x[0]) + '</small></button>';
+    }).join(''));
   document.getElementById('none').hidden = shown > 0;
 }
 function choose(id) {
@@ -436,6 +493,8 @@ function choose(id) {
   document.getElementById('remove').hidden = !CUSTOM.some(function (c) { return c.id === C.id; });
   store('co', C.id);
   chips(); buildForm(); render();
+  var t = C.ticker;
+  if (t && INDEX.some(function (x) { return x[0] === t; }) || C.live) loadCo(t).then(function () { if (C.ticker === t) render(); }).catch(function () {});
 }
 function save() { store('edit:' + C.id, A); }
 function say(t, err) { var m = document.getElementById('msg'); m.textContent = t; m.classList.toggle('err', !!err); }
@@ -460,8 +519,8 @@ function field(k, label, kind, extra) {
 function years(k, what) {
   var h = '<div class="yrs">';
   for (var i = 0; i < 10; i++) {
-    h += '<div class="yr" data-k="' + k + '" data-i="' + i + '"><label for="i-' + k + i + '">' + (2026 + i) + '</label>' +
-      '<div class="in"><input id="i-' + k + i + '" aria-label="' + what + ' ' + (2026 + i) + '" type="number" inputmode="decimal" step="0.5" data-k="' + k + '" data-i="' + i + '" data-kind="pct" value="' +
+    h += '<div class="yr" data-k="' + k + '" data-i="' + i + '"><label for="i-' + k + i + '">' + (Y0() + i) + '</label>' +
+      '<div class="in"><input id="i-' + k + i + '" aria-label="' + what + ' ' + (Y0() + i) + '" type="number" inputmode="decimal" step="0.5" data-k="' + k + '" data-i="' + i + '" data-kind="pct" value="' +
       +(A[k][i] * 100).toFixed(3) + '"><span>%</span></div></div>';
   }
   return h + '</div>' + (C.notes[k] ? '<p class="gnote">' + esc(C.notes[k]) + '</p>' : '');
@@ -475,8 +534,8 @@ function buildForm() {
       '<div class="bar"><button class="btn" type="button" id="cagr">Use one average rate for all ten years</button></div></div>' +
     '<div class="grp"><h3>Operating margin</h3>' + years('m', 'Operating margin') + '</div>' +
     '<div class="grp"><h3>Long run and terminal value</h3>' +
-      field('lr', 'Long-run operating margin', 'pct', 'Changing it moves 2030–2035 and the terminal value together.') +
-      field('tax', 'Tax rate, 2026–2035', 'pct') + field('taxT', 'Tax rate in the terminal value', 'pct') + field(inv[0], inv[1], inv[2]) +
+      field('lr', 'Long-run operating margin', 'pct', 'Changing it moves ' + (Y0() + 4) + '–' + (Y0() + 9) + ' and the terminal value together.') +
+      field('tax', 'Tax rate, ' + Y0() + '–' + (Y0() + 9), 'pct') + field('taxT', 'Tax rate in the terminal value', 'pct') + field(inv[0], inv[1], inv[2]) +
       field('tg', 'Terminal growth', 'pct') + field('roic', 'Return on capital in the terminal value', 'pct') + '</div>';
 }
 function syncInputs() {
@@ -515,22 +574,22 @@ function render() {
     ['Cost of debt after tax', pc(r.kdT, 2)], ['<i class="lock"></i>Debt share of capital, market values', pc(r.wd, 1)],
     ['Discount rate (WACC)', pc(r.wacc, 2), 1], ['Discount rate the price implies', iws]]);
   document.getElementById('tv').innerHTML = rowsHtml([
-    ['Revenue, 2035 × (1 + ' + pc(A.tg, 1) + ')', mil(r.revT)], ['Operating profit after tax, at ' + pc(A.lr, 1) + ' margin', mil(r.nopatT)],
+    ['Revenue, ' + (Y0() + 9) + ' × (1 + ' + pc(A.tg, 1) + ')', mil(r.revT)], ['Operating profit after tax, at ' + pc(A.lr, 1) + ' margin', mil(r.nopatT)],
     ['Less reinvestment, ' + pc(A.tg, 1) + ' ÷ ' + pc(A.roic, 0) + ' of it', mil(r.fcfT - r.nopatT)], ['Unlevered free cash flow', mil(r.fcfT), 1],
     ['Terminal value, ÷ (' + pc(r.wacc, 2) + ' − ' + pc(A.tg, 1) + ')', mil(r.tv)], ['Value today', mil(r.pvTv), 1],
     ['Share of enterprise value', pc(r.tvShare, 0)]]);
 
   document.getElementById('cur-note').textContent = C.unit + ', valued at ' + niceDate(f.date);
   document.getElementById('bridge').innerHTML = rowsHtml([
-    ['2026–2035 cash flows, value today', mil(r.pv)], ['Plus terminal value, value today', mil(r.pvTv)], ['Enterprise value', mil(r.ev), 1],
+    [Y0() + '–' + (Y0() + 9) + ' cash flows, value today', mil(r.pv)], ['Plus terminal value, value today', mil(r.pvTv)], ['Enterprise value', mil(r.ev), 1],
     [f.netCash < 0 ? 'Less net debt' : 'Plus net cash', mil(f.netCash)], ['Equity value', mil(r.eq), 1],
     ['Shares (million)', num(f.shares, 1)], ['Value per share', ok ? money(C, r.value, 2) : '—', 1]]);
-  document.getElementById('facts-note').textContent = C.source === 'Added by hand' ? 'As you entered them. To change them, add the company again with the same ticker.' : 'From the spreadsheet. Re-import it after a new report.';
+  document.getElementById('facts-note').textContent = C.live ? 'From the latest SEC filings and market close, refreshed every weeknight.' : C.source === 'Added by hand' ? 'As you entered them. To change them, add the company again with the same ticker.' : 'From the spreadsheet. Re-import it after a new report.';
   document.getElementById('facts').innerHTML = C.facts.map(function (x) { return '<div><span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('');
 
-  document.getElementById('unit-note').textContent = C.unit + '. The first column is the last reported year; the last is the steady-state year behind the terminal value (step 3). 2026 counts only the part of the year after the valuation date.';
+  document.getElementById('unit-note').textContent = C.unit + '. The first column is the last reported year; the last is the steady-state year behind the terminal value (step 3). ' + Y0() + ' counts only the part of the year after the valuation date.';
   var T = { year: 'Terminal', g: A.tg, rev: r.revT, m: A.lr, ebit: r.revT * A.lr, nopat: r.nopatT, inv: r.nopatT - r.fcfT, fcf: r.fcfT, pv: null };
-  var R = r.rows.concat(T), th = '<thead><tr><th></th><th class="act">2025A</th>' + R.map(function (x) { return '<th' + (x === T ? ' class="term"' : '') + '>' + (x === T ? 'Terminal' : x.year + 'E') + '</th>'; }).join('') + '</tr></thead>';
+  var R = r.rows.concat(T), th = '<thead><tr><th></th><th class="act">' + (C.fact.baseLabel || (Y0() - 1) + 'A') + '</th>' + R.map(function (x) { return '<th' + (x === T ? ' class="term"' : '') + '>' + (x === T ? 'Terminal' : x.year + 'E') + '</th>'; }).join('') + '</tr></thead>';
   var line = function (lb, a0, fn, em) { return '<tr' + (em ? ' class="em"' : '') + '><td>' + lb + '</td><td class="act">' + a0 + '</td>' + R.map(function (x) { return '<td' + (x === T ? ' class="term"' : '') + '>' + fn(x) + '</td>'; }).join('') + '</tr>'; };
   document.getElementById('proj').innerHTML = th + '<tbody>' +
     line('Revenue growth', '', function (x) { return pc(x.g); }) +
@@ -543,10 +602,10 @@ function render() {
     line('Unlevered free cash flow', '', function (x) { return mil(x.fcf); }, 1) +
     line('Value today', '', function (x) { return x.pv == null ? 'Step 3' : mil(x.pv); }) + '</tbody>';
 
-  var H = HIST && HIST.companies[C.ticker];
+  var J = CO[C.ticker] && CO[C.ticker].done, H = J && J.history;
   document.getElementById('hist').hidden = !H;
   if (H) {
-    document.getElementById('hist-note').textContent = 'Fiscal years as reported in each 10-K (' + C.unit + '), pulled ' + niceDate(HIST.pulled) + '. Use it to check the reinvestment assumption: net investment is capex − D&A + the change in working capital.';
+    document.getElementById('hist-note').textContent = 'Fiscal years as reported in each 10-K (' + C.unit + '), balance sheet at ' + niceDate(J.balanceDate) + '. Use it to check the reinvestment assumption: net investment is capex − D&A + the change in working capital.';
     var hl = function (lb, fn, em) { return '<tr' + (em ? ' class="em"' : '') + '><td>' + lb + '</td>' + H.map(function (y) { return '<td>' + fn(y) + '</td>'; }).join('') + '</tr>'; };
     var ni = function (y) { return y.capex - y.da + (y.dnwc || 0); };
     document.getElementById('histt').innerHTML = '<thead><tr><th></th>' + H.map(function (y) { return '<th>FY ending ' + y.end.slice(0, 7) + '</th>'; }).join('') + '</tr></thead><tbody>' +
@@ -593,18 +652,18 @@ document.getElementById('form').addEventListener('input', function (e) {
   else A[t.dataset.k] = v;
   save(); syncInputs(); render();
 });
-// Same 2035 revenue, spread evenly: the compound annual growth rate (CAGR) of the current path.
+// Same final-year revenue, spread evenly: the compound annual growth rate (CAGR) of the current path.
 document.getElementById('form').addEventListener('click', function (e) {
   if (e.target.id !== 'cagr') return;
   var k = A.g.reduce(function (p, g) { return p * (1 + g); }, 1), c = Math.pow(k, 0.1) - 1;
   A.g = A.g.map(function () { return Math.round(c * 1e4) / 1e4; });
   save(); syncInputs(); render();
 });
-document.getElementById('chips').addEventListener('click', function (e) { var b = e.target.closest('.chip'); if (b) choose(b.dataset.id); });
+document.getElementById('chips').addEventListener('click', function (e) { var b = e.target.closest('.chip'); if (b) b.dataset.live ? loadLive(b.dataset.live) : choose(b.dataset.id); });
 document.getElementById('q').addEventListener('input', chips);
 document.getElementById('q').addEventListener('keydown', function (e) {
   if (e.key !== 'Enter') return;
-  var first = document.querySelector('#chips .chip:not([hidden])'); if (first) choose(first.dataset.id);
+  var first = document.querySelector('#chips .chip:not([hidden])'); if (first) first.click();
 });
 document.getElementById('reset').addEventListener('click', function () { A = clone(C.base); save(); buildForm(); render(); });
 document.getElementById('bear').addEventListener('click', function () { A = withLr(clone(C.base), C.bear.lr); save(); buildForm(); render(); });
@@ -648,7 +707,8 @@ document.getElementById('theme').addEventListener('click', function () {
   r.dataset.theme = dark ? 'light' : 'dark'; store('theme', r.dataset.theme);
 });
 var th0 = store('theme'); if (th0) document.documentElement.dataset.theme = th0;
-choose(store('co') || 'MU');
+var START = store('co');
+choose(START || 'MU');
 </script>
 </body>
 </html>
