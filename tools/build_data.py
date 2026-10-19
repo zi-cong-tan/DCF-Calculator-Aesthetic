@@ -22,10 +22,16 @@ FLOWS = {
     'ebit': ['OperatingIncomeLoss'],
     'da': ['DepreciationDepletionAndAmortization', 'DepreciationAmortizationAndAccretionNet', 'DepreciationAndAmortization',
            'Depreciation'],  # last resort (Tesla tags only this): leaves out amortization, so D&A reads slightly low
-    'capex': ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets'],
+    'capex': ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets',
+              'PaymentsForProceedsFromProductiveAssets', 'PaymentsToAcquireOtherPropertyPlantAndEquipment',
+              'PaymentsToAcquireOtherProductiveAssets', 'PaymentsForConstructionInProcess',  # utilities and telecoms
+              'PaymentsToAcquireOilAndGasPropertyAndEquipment', 'PaymentsToDevelopRealEstateAssets'],
+    # some (NextEra, DTE, CMS, ConocoPhillips) tag capex only under their own labels, which company facts leave out: stays empty
     'amort': ['AmortizationOfIntangibleAssets'],  # for the EBITA margin; many companies don't tag it, then it stays empty
     'tax': ['IncomeTaxExpenseBenefit'],
-    'interest': ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt', 'InterestAndDebtExpense'],
+    'interest': ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt', 'InterestAndDebtExpense',
+                 'InterestExpenseLongTermDebt',
+                 'InterestPaidNet'],  # last resort: interest paid in cash, close to the expense
     'pretax': ['IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
                'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments',
                'IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic'],  # last resort: US-only companies report just this
@@ -102,6 +108,11 @@ def company(cik, ticker, spx, financial):
     facts = json.loads(get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{int(cik):010d}.json', SEC_UA))['facts']
     g = facts.get('us-gaap', {})
     f = {k: series(g, t, True) for k, t in FLOWS.items()}
+    # capex: the largest of its labels each year, since some companies also tag a smaller part ("other" equipment)
+    f['capex'] = {}
+    for t in FLOWS['capex']:
+        for d, v in series(g, [t], True).items():
+            f['capex'][d] = max(v, f['capex'].get(d, v))
     s = {k: series(g, t, False) for k, t in STOCKS.items()}
     q = {k: series(g, t, False, ('10-K', '10-Q')) for k, t in STOCKS.items()}  # latest balance sheet, any filing
     ends = sorted(f['revenue'])[-(YEARS + 1):]
@@ -130,7 +141,7 @@ def company(cik, ticker, spx, financial):
         dn = nwc(d) - nwc(prev) if s['ca'].get(prev) and s['ca'].get(d) else None
         e, proxy = ebit(d)
         hist.append({'end': d, 'revenue': f['revenue'][d] / m, 'ebit': e / m, 'ebitProxy': proxy, 'da': f['da'].get(d, 0) / m,
-                     'capex': f['capex'].get(d, 0) / m, 'dnwc': None if dn is None else dn / m,
+                     'capex': opt(f['capex'], d), 'dnwc': None if dn is None else dn / m,
                      'interest': opt(f['interest'], d), 'amort': opt(f['amort'], d)})
     rates = [f['tax'][d] / f['pretax'][d] for d in ends[1:] if f['tax'].get(d) is not None and f['pretax'].get(d, 0) > 0]
 

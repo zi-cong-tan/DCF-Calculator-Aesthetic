@@ -31,6 +31,8 @@ Nothing is lost in the translation. The four bundled models match their source s
 - Ten-year forecast with mid-year discounting and a part-year for 2026
 - Terminal value where reinvestment = growth ÷ return on capital
 - A bear-case button and reset-to-base
+- For searched companies, the pre-tax cost of debt comes from a synthetic credit rating: operating profit ÷ interest expense over the last three years, mapped to a rating and default spread with [Damodaran's January 2026 table](https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html) for large companies
+- The SEC history shows EBITDA and EBITA margins next to the operating margin for comparison; the forecast runs on the operating margin (EBIT), because reinvestment is already net of D&A
 
 ## How to use
 
@@ -60,6 +62,8 @@ Everything runs inside your own browser. There is no server and no account, and 
 Prices and the risk-free rate are as of mid-October 2026. This is a learning and analysis tool, not investment advice.
 
 ## Updates
+
+**October 19, 2026 (night)**: from a comment on the model: **cost of debt from a synthetic credit rating** (interest coverage, Damodaran's spreads) instead of one flat spread; **EBITDA and EBITA margins** and interest coverage added to the SEC history. A margin selector was considered and left out: forecasting EBITDA with reinvestment net of D&A would count D&A twice. Also fixed capex for utilities and energy companies that report it under other labels (Dominion, Con Edison, WEC, EOG, Verizon); where capex isn't in the standard labels at all (NextEra, DTE, CMS, ConocoPhillips), the table shows a dash and reinvestment defaults to growth ÷ return on capital.
 
 **October 19, 2026 (evening)**: **search any S&P 500 company.** Reported figures come from SEC filings and the last close, refreshed every weeknight by a GitHub Action. Starting assumptions come from each company's own history and are labelled as defaults.
 

@@ -416,13 +416,18 @@ function fromLive(j) {
   var h = j.history, last = h[h.length - 1], n = h.length - 1, clamp = function (v, lo, hi) { return Math.min(hi, Math.max(lo, v)); };
   var avg = function (fn) { return h.reduce(function (s, y) { return s + fn(y); }, 0) / h.length; };
   var cagr = n ? Math.pow(last.revenue / h[0].revenue, 1 / n) - 1 : 0.05, g1 = clamp(cagr, -0.05, 0.25), tg = 0.025;
-  var m = avg(function (y) { return y.ebit / y.revenue; }), ni = clamp(avg(function (y) { return (y.capex - y.da + (y.dnwc || 0)) / y.revenue; }), 0, 0.3);
+  var m = avg(function (y) { return y.ebit / y.revenue; });
   var tax = j.taxRate != null && j.taxRate >= 0 && j.taxRate <= 0.4 ? Math.round(j.taxRate * 1000) / 1000 : 0.21;
   var beta = j.betaRaw != null ? Math.round((0.67 * j.betaRaw + 0.33) * 100) / 100 : 1;
   // all reported years together, so one year of write-downs doesn't sink the rating
   var withInt = h.filter(function (y) { return y.interest > 0; });
   var rt = rating({ ebit: withInt.reduce(function (s, y) { return s + y.ebit; }, 0), interest: withInt.reduce(function (s, y) { return s + y.interest; }, 0) }), kd = rt ? j.rf + rt.r[2] : j.rf + 0.015;
   var ic = (j.equity || 0) + j.debt - j.cash, nopat = last.revenue * m * (1 - tax), roic = ic > 0 ? clamp(nopat / ic, 0.06, 0.5) : 0.5;
+  // Capex missing (some utilities and energy companies tag it only under their own labels): reinvest what growth needs
+  // at this return on capital (growth ÷ ROIC of after-tax profit), the same rule as the terminal value.
+  var withCap = h.filter(function (y) { return y.capex; });
+  var ni = clamp(withCap.length ? withCap.reduce(function (s, y) { return s + (y.capex - y.da + (y.dnwc || 0)) / y.revenue; }, 0) / withCap.length
+                                : g1 * m * (1 - tax) / roic, 0, 0.3);
   var f = { date: j.priceDate, price: j.price, shares: j.shares, rev0: last.revenue, m0: last.ebit / last.revenue, netCash: j.cash - j.debt, debt: j.debt,
             rf: j.rf, tShield: 0.21, reinvest: 'pct', baseLabel: 'FY' + last.end.slice(0, 4) };
   var co = { id: j.ticker, name: j.name, ticker: j.ticker, cur: '$', unit: 'USD millions', acc: '', fact: f, sheetValue: null, crpLabel: 'Country risk premium', live: true,
@@ -437,7 +442,8 @@ function fromLive(j) {
              tax: tax !== 0.21 || j.taxRate === 0.21 ? 'Default: average effective tax rate over the last ' + n + ' fiscal years, from the 10-Ks.' : 'Default: 21%, the US federal rate (the reported rate was unusable).',
              g: 'Default: the last ' + n + '-year revenue growth rate (' + pc(cagr) + (g1 !== cagr ? ', capped at ' + pc(g1) : '') + ') fading in a straight line to terminal growth. No analyst estimates: set the first years yourself.',
              m: 'Default: the average operating margin of the last ' + h.length + ' fiscal years, held flat. Change it if the company is at a peak or a trough.',
-             lr: 'Default: the same ' + h.length + '-year average margin.', inv: 'Default: average capex − D&A + working capital over the last ' + h.length + ' years, as a share of revenue (see the SEC history under step 1).',
+             lr: 'Default: the same ' + h.length + '-year average margin.', inv: withCap.length ? 'Default: average capex − D&A + working capital over ' + withCap.length + ' years with reported capex, as a share of revenue (see the SEC history under step 1).'
+               : 'Default: capex is not in the filings’ standard labels, so this is what growth needs at this return on capital: first-year growth × after-tax margin ÷ ROIC. Check it against the cash flow statement.',
              tg: 'Default: 2.5%, as in the bundled models.', roic: ic > 0 ? 'Default: last year’s after-tax operating profit ÷ (equity + debt − cash), kept between 6% and 50%.' : 'Default: 50%. Equity is negative after buybacks, so the return on capital is very high.' } };
   co.facts = factRows(co);
   co.facts[0][0] = 'Price, ' + niceDate(f.date) + ' close';
@@ -629,18 +635,18 @@ function render() {
   if (H) {
     document.getElementById('hist-note').textContent = 'Fiscal years as reported in each 10-K (' + C.unit + '), balance sheet at ' + niceDate(J.balanceDate) + '. Use it to check the reinvestment assumption: net investment is capex − D&A + the change in working capital. EBITDA and EBITA margins are for comparing with analyst figures only: the model forecasts the operating margin, because its reinvestment is already net of D&A.';
     var hl = function (lb, fn, em) { return '<tr' + (em ? ' class="em"' : '') + '><td>' + lb + '</td>' + H.map(function (y) { return '<td>' + fn(y) + '</td>'; }).join('') + '</tr>'; };
-    var ni = function (y) { return y.capex - y.da + (y.dnwc || 0); };
+    var ni = function (y) { return y.capex - y.da + (y.dnwc || 0); }, gap = function (fn) { return function (y) { return y.capex ? fn(y) : '—'; }; };
     document.getElementById('histt').innerHTML = '<thead><tr><th></th>' + H.map(function (y) { return '<th>FY ending ' + y.end.slice(0, 7) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       hl('Revenue', function (y) { return mil(y.revenue); }) +
       hl('Operating margin (EBIT)', function (y) { return pc(y.ebit / y.revenue); }) +
       hl('EBITDA margin', function (y) { return y.da ? pc((y.ebit + y.da) / y.revenue) : '—'; }) +
       hl('EBITA margin <small>(before amortisation of intangibles)</small>', function (y) { return y.amort == null ? '—' : pc((y.ebit + y.amort) / y.revenue); }) +
       hl('Interest coverage → synthetic rating', function (y) { var t = rating(y); return t ? num(t.cov, 1) + '× → ' + t.r[1] : '—'; }) +
-      hl('Capex', function (y) { return mil(y.capex); }) +
+      hl('Capex', gap(function (y) { return mil(y.capex); })) +
       hl('Less D&amp;A', function (y) { return mil(-y.da); }) +
       hl('Change in working capital', function (y) { return y.dnwc == null ? '—' : mil(y.dnwc); }) +
-      hl('Net investment', function (y) { return mil(ni(y)); }, 1) +
-      hl('Net investment, % of revenue', function (y) { return pc(ni(y) / y.revenue); }) + '</tbody>';
+      hl('Net investment', gap(function (y) { return mil(ni(y)); }), 1) +
+      hl('Net investment, % of revenue', gap(function (y) { return pc(ni(y) / y.revenue); })) + '</tbody>';
   }
 
   grid('sens', 'margin', A.lr, [-0.05, -0.025, 0, 0.025, 0.05], 1, function (a, v) { return withLr(a, v); });
