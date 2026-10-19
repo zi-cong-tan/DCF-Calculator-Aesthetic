@@ -419,7 +419,9 @@ function fromLive(j) {
   var m = avg(function (y) { return y.ebit / y.revenue; }), ni = clamp(avg(function (y) { return (y.capex - y.da + (y.dnwc || 0)) / y.revenue; }), 0, 0.3);
   var tax = j.taxRate != null && j.taxRate >= 0 && j.taxRate <= 0.4 ? Math.round(j.taxRate * 1000) / 1000 : 0.21;
   var beta = j.betaRaw != null ? Math.round((0.67 * j.betaRaw + 0.33) * 100) / 100 : 1;
-  var rt = rating(last), kd = rt ? j.rf + rt.r[2] : j.rf + 0.015;
+  // all reported years together, so one year of write-downs doesn't sink the rating
+  var withInt = h.filter(function (y) { return y.interest > 0; });
+  var rt = rating({ ebit: withInt.reduce(function (s, y) { return s + y.ebit; }, 0), interest: withInt.reduce(function (s, y) { return s + y.interest; }, 0) }), kd = rt ? j.rf + rt.r[2] : j.rf + 0.015;
   var ic = (j.equity || 0) + j.debt - j.cash, nopat = last.revenue * m * (1 - tax), roic = ic > 0 ? clamp(nopat / ic, 0.06, 0.5) : 0.5;
   var f = { date: j.priceDate, price: j.price, shares: j.shares, rev0: last.revenue, m0: last.ebit / last.revenue, netCash: j.cash - j.debt, debt: j.debt,
             rf: j.rf, tShield: 0.21, reinvest: 'pct', baseLabel: 'FY' + last.end.slice(0, 4) };
@@ -430,7 +432,7 @@ function fromLive(j) {
             m: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(function () { return Math.round(m * 1000) / 1000; }) },
     notes: { beta: j.betaRaw != null ? 'Default. 5-year monthly regression against the S&P 500 gives ' + j.betaRaw.toFixed(2) + '. Blended toward 1: 0.67 × raw + 0.33.' : 'Default: 1.0, the market average (not enough price history).',
              erp: 'Default: the bundled models use 4.5%.', crp: 'None: US company.',
-             kd: rt ? 'Default: risk-free rate plus ' + pc(rt.r[2], 2) + ', the spread for a ' + rt.r[1] + ' rating. Synthetic rating from interest coverage of ' + num(rt.cov, 1) + '× (' + f.baseLabel + ' operating profit ÷ interest expense), Damodaran’s January 2026 table for large companies.'
+             kd: rt ? 'Default: risk-free rate plus ' + pc(rt.r[2], 2) + ', the spread for a ' + rt.r[1] + ' rating. Synthetic rating from interest coverage of ' + num(rt.cov, 1) + '× (operating profit ÷ interest expense over the last ' + withInt.length + ' fiscal years), Damodaran’s January 2026 table for large companies.'
                : 'Default: risk-free rate plus 1.5% (no interest expense in the filings, so no synthetic rating).',
              tax: tax !== 0.21 || j.taxRate === 0.21 ? 'Default: average effective tax rate over the last ' + n + ' fiscal years, from the 10-Ks.' : 'Default: 21%, the US federal rate (the reported rate was unusable).',
              g: 'Default: the last ' + n + '-year revenue growth rate (' + pc(cagr) + (g1 !== cagr ? ', capped at ' + pc(g1) : '') + ') fading in a straight line to terminal growth. No analyst estimates: set the first years yourself.',
