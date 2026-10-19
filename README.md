@@ -38,7 +38,7 @@ Nothing is lost in the translation. The four bundled models match their source s
 2. **Pick a company.** Click one of the four worked examples under the search bar, or search **any S&P 500 company** by name or ticker. A searched company loads its reported figures from SEC filings and the last closing price, updated every weeknight. Its assumptions start as defaults from its own history (past growth, average margin, average reinvestment, a blended beta), so set them before trusting the value.
 3. **Read the answer.** The top row shows the value per share, the market price, and the long-run margin the price needs.
 4. **Change the assumptions.** Edit any box on the left. Percentages are typed as plain numbers (25 means 25%). Edited boxes are outlined and show the base value, and everything on the right updates as you type.
-5. **Stress-test it.** Click **Bear case** for a pessimistic version, or check the sensitivity grid to see the value across different discount rates and margins. **Reset to the base case** puts everything back.
+5. **Stress-test it.** Click **Bear case** for a pessimistic version or **Bull case** for an optimistic one, or check the sensitivity grid to see the value across different discount rates and margins. **Reset to the base case** puts everything back.
 6. **Add your own company.**
    - **Import a DCF spreadsheet:** any `.xlsx` built on the same template. Copy one of the files in `examples/` and fill in your company.
    - **Add a company by hand:** enter the reported figures from the latest annual report. The starting assumptions are placeholders, so change them before trusting the value.
