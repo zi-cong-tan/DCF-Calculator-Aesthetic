@@ -55,6 +55,13 @@ Everything runs inside your own browser. There is no server and no account, and 
 
 Prices and the risk-free rate are as of mid-October 2026. This is a learning and analysis tool, not investment advice.
 
+## Updates
+
+**October 19, 2026**: changes based on feedback from r/financialmodelling:
+- **Blended betas.** Each beta is now 0.67 × the 5-year regression beta + 0.33, instead of a judgment call. Values moved: Micron $642.59 → $589.64, Apple $148.68 → $151.20, Amazon $139.85 → $136.19, Tesla $22.97 → $26.39.
+- **Discount rate the price implies.** Shows the rate at which the value equals today's price, next to your own discount rate.
+- **Second sensitivity grid.** Shows the discount rate against terminal growth.
+
 ## Feedback welcome
 
 This is my first project on GitHub, so I'd love to hear what you think. Ideas for making the calculator better, things that confused you, features you'd want, or suggestions for what I should build next are all welcome.
