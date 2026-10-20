@@ -200,6 +200,7 @@
         <button class="btn" id="reset" type="button">Reset to the base case</button>
         <button class="btn" id="bear" type="button">Bear case</button>
         <button class="btn" id="bull" type="button">Bull case</button>
+        <button class="btn" id="xlsx" type="button">Download as Excel</button>
       </div>
       <div id="form"></div>
     </section>
@@ -209,10 +210,10 @@
       <section class="card" aria-live="polite">
         <div class="cohead"><h2 id="coname"></h2><p id="cosrc"></p></div>
         <div class="hero">
-          <div class="stat main"><span class="lb">Value per share</span><span class="v" id="r-val"></span><span class="s" id="r-vs"></span></div>
+          <div class="stat main"><span class="lb">Intrinsic value per share</span><span class="v" id="r-val"></span><span class="s" id="r-vs"></span></div>
           <div class="stat"><span class="lb"><i class="lock"></i>Price</span><span class="v" id="r-px"></span><span class="s" id="r-pxs"></span></div>
           <div class="stat"><span class="lb">Base case</span><span class="v" id="r-base"></span><span class="s" id="r-diff"></span></div>
-          <div class="stat"><span class="lb">Long-run margin the price needs</span><span class="v" id="r-imp"></span><span class="s" id="r-imps"></span></div>
+          <div class="stat"><span class="lb">Implied long-run margin at the price</span><span class="v" id="r-imp"></span><span class="s" id="r-imps"></span></div>
         </div>
       </section>
 
@@ -242,7 +243,7 @@
 
       <div class="two">
         <section class="card">
-          <h2><span class="step">4</span>Enterprise value to value per share</h2>
+          <h2><span class="step">4</span>Enterprise value to intrinsic value per share</h2>
           <p class="sub" id="cur-note"></p>
           <div class="rows" id="bridge"></div>
         </section>
@@ -269,14 +270,14 @@
       </section>
 
       <section class="card">
-        <h2>Sensitivity: value per share</h2>
+        <h2>Sensitivity: WACC and long-run margin</h2>
         <p class="sub">Rows move the discount rate, columns move the long-run margin. Centre is your current case; the dashed cell is nearest the price.</p>
         <div class="tw"><table class="sens" id="sens"></table></div>
       </section>
 
       <section class="card">
-        <h2>Sensitivity: discount rate and terminal growth</h2>
-        <p class="sub">Rows move the discount rate, columns move terminal growth. Read it with the terminal value share in step 3: the higher that share, the more these two inputs decide the answer.</p>
+        <h2>Sensitivity: WACC and terminal growth</h2>
+        <p class="sub">Rows move the discount rate, columns move terminal growth. Higher growth adds value only when terminal ROIC is above WACC; below it, growing costs more than it earns, so value falls as growth rises (see step 3).</p>
         <div class="tw"><table class="sens" id="sens2"></table></div>
       </section>
     </div>
@@ -333,7 +334,7 @@ function dcf(f, a) {
     var inv = f.reinvest === 'pct' ? rev * a.inv : Math.max(0, rev - prev) / a.inv;
     var fcf = nopat - inv, share = i ? 1 : stub, t = i ? stub + i - 0.5 : stub / 2;
     var p = fcf * share / Math.pow(1 + wacc, t);
-    rows.push({ year: +d[0] + i, g: a.g[i], rev: rev, m: a.m[i], ebit: ebit, nopat: nopat, inv: inv, fcf: fcf, pv: p });
+    rows.push({ year: +d[0] + i, g: a.g[i], rev: rev, m: a.m[i], ebit: ebit, nopat: nopat, inv: inv, fcf: fcf, df: 1 / Math.pow(1 + wacc, t), pv: p });
     pv += p; prev = rev;
   }
   var revT = rev * (1 + a.tg), nopatT = revT * a.lr * (1 - a.taxT);
@@ -579,15 +580,15 @@ function years(k, what) {
 function buildForm() {
   var inv = C.fact.reinvest === 'pct' ? ['inv', 'Net investment, % of revenue', 'pct'] : ['inv', 'Sales-to-capital ratio', 'x'];
   document.getElementById('form').innerHTML =
-    '<div class="grp"><h3>Discount rate</h3>' + field('beta', 'Beta', 'x') + field('erp', 'Equity risk premium', 'pct') +
-      field('crp', esc(C.crpLabel), 'pct') + field('kd', 'Cost of debt, before tax', 'pct') + '<div id="waccbox" style="margin-top:8px"></div></div>' +
+    '<div class="grp"><h3>Cost of capital (WACC)</h3>' + field('beta', 'Beta', 'x') + field('erp', 'Equity risk premium', 'pct') +
+      field('crp', esc(C.crpLabel), 'pct') + field('kd', 'Pre-tax cost of debt', 'pct') + '<div id="waccbox" style="margin-top:8px"></div></div>' +
     '<div class="grp"><h3>Revenue growth</h3>' + years('g', 'Revenue growth') +
       '<div class="bar"><button class="btn" type="button" id="cagr">Use one average rate for all ten years</button></div></div>' +
     '<div class="grp"><h3>Operating margin</h3>' + years('m', 'Operating margin') + '</div>' +
     '<div class="grp"><h3>Long run and terminal value</h3>' +
       field('lr', 'Long-run operating margin', 'pct', 'Changing it moves ' + (Y0() + 4) + '–' + (Y0() + 9) + ' and the terminal value together.') +
       field('tax', 'Tax rate, ' + Y0() + '–' + (Y0() + 9), 'pct') + field('taxT', 'Tax rate in the terminal value', 'pct') + field(inv[0], inv[1], inv[2]) +
-      field('tg', 'Terminal growth', 'pct') + field('roic', 'Return on capital in the terminal value', 'pct') + '</div>';
+      field('tg', 'Terminal growth', 'pct') + field('roic', 'Terminal ROIC', 'pct') + '</div>';
 }
 function syncInputs() {
   document.querySelectorAll('#form input').forEach(function (el) {
@@ -616,25 +617,27 @@ function render() {
 
   var iw = ok ? impliedWacc(f, A) : NaN, iws = !ok ? '—' : isFinite(iw) ? pc(iw, 2) : 'Below terminal growth';
   document.getElementById('waccbox').innerHTML =
-    '<div class="calc k"><span>Discount rate (WACC)</span><b>' + pc(r.wacc, 2) + '</b></div>' +
-    '<div class="calc"><span>Discount rate the price implies</span><b>' + iws + '</b></div>';
+    '<div class="calc k"><span>WACC</span><b>' + pc(r.wacc, 2) + '</b></div>' +
+    '<div class="calc"><span>Implied WACC at the current price</span><b>' + iws + '</b></div>';
   var rowsHtml = function (list) { return list.map(function (x) { return '<div' + (x[2] ? ' class="tot"' : '') + '><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join(''); };
   document.getElementById('wacc').innerHTML = rowsHtml([
     ['<i class="lock"></i>Risk-free rate, US 10-year', pc(f.rf, 2)], ['Beta × equity risk premium', A.beta.toFixed(2) + ' × ' + pc(A.erp, 1)],
     [esc(C.crpLabel), pc(A.crp, 2)], ['Cost of equity', pc(r.ke, 2), 1],
-    ['Cost of debt after tax', pc(r.kdT, 2)], ['<i class="lock"></i>Debt share of capital, market values', pc(r.wd, 1)],
-    ['Discount rate (WACC)', pc(r.wacc, 2), 1], ['Discount rate the price implies', iws]]);
+    ['After-tax cost of debt', pc(r.kdT, 2)], ['<i class="lock"></i>Debt / total capital, market values', pc(r.wd, 1)],
+    ['WACC', pc(r.wacc, 2), 1], ['Implied WACC at the current price', iws]]);
   document.getElementById('tv').innerHTML = rowsHtml([
-    ['Revenue, ' + (Y0() + 9) + ' × (1 + ' + pc(A.tg, 1) + ')', mil(r.revT)], ['Operating profit after tax, at ' + pc(A.lr, 1) + ' margin', mil(r.nopatT)],
-    ['Less reinvestment, ' + pc(A.tg, 1) + ' ÷ ' + pc(A.roic, 0) + ' of it', mil(r.fcfT - r.nopatT)], ['Unlevered free cash flow', mil(r.fcfT), 1],
-    ['Terminal value, ÷ (' + pc(r.wacc, 2) + ' − ' + pc(A.tg, 1) + ')', mil(r.tv)], ['Value today', mil(r.pvTv), 1],
-    ['Share of enterprise value', pc(r.tvShare, 0)]]);
+    ['Revenue, ' + (Y0() + 9) + ' × (1 + ' + pc(A.tg, 1) + ')', mil(r.revT)], ['NOPAT, at ' + pc(A.lr, 1) + ' operating margin', mil(r.nopatT)],
+    ['Less reinvestment, g ÷ ROIC = ' + pc(A.tg, 1) + ' ÷ ' + pc(A.roic, 0) + ' of NOPAT', mil(r.fcfT - r.nopatT)], ['Terminal-year UFCF', mil(r.fcfT), 1],
+    ['Terminal value (Gordon growth), ÷ (' + pc(r.wacc, 2) + ' − ' + pc(A.tg, 1) + ')', mil(r.tv)], ['PV of terminal value', mil(r.pvTv), 1],
+    ['Terminal value as % of EV', pc(r.tvShare, 0)],
+    ['Terminal ROIC vs WACC', pc(A.roic, 1) + (A.roic > r.wacc + 5e-4 ? ' > ' : A.roic < r.wacc - 5e-4 ? ' < ' : ' ≈ ') + pc(r.wacc, 1)],
+    ['So more terminal growth', A.roic > r.wacc + 5e-4 ? 'adds value' : A.roic < r.wacc - 5e-4 ? 'lowers value' : 'barely moves value']]);
 
   document.getElementById('cur-note').textContent = C.unit + ', valued at ' + niceDate(f.date);
   document.getElementById('bridge').innerHTML = rowsHtml([
-    [Y0() + '–' + (Y0() + 9) + ' cash flows, value today', mil(r.pv)], ['Plus terminal value, value today', mil(r.pvTv)], ['Enterprise value', mil(r.ev), 1],
+    ['Sum of PV of UFCF, ' + Y0() + '–' + (Y0() + 9), mil(r.pv)], ['Plus PV of terminal value', mil(r.pvTv)], ['Enterprise value', mil(r.ev), 1],
     [f.netCash < 0 ? 'Less net debt' : 'Plus net cash', mil(f.netCash)], ['Equity value', mil(r.eq), 1],
-    ['Shares (million)', num(f.shares, 1)], ['Value per share', ok ? money(C, r.value, 2) : '—', 1]]);
+    ['Shares outstanding (million)', num(f.shares, 1)], ['Intrinsic value per share', ok ? money(C, r.value, 2) : '—', 1]]);
   document.getElementById('facts-note').textContent = C.live ? 'From the latest SEC filings and market close, refreshed every weeknight.' : C.source === 'Added by hand' ? 'As you entered them. To change them, add the company again with the same ticker.' : 'From the spreadsheet. Re-import it after a new report.';
   document.getElementById('facts').innerHTML = C.facts.map(function (x) { return '<div><span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('');
 
@@ -648,10 +651,11 @@ function render() {
     line('Operating margin', pc(f.m0), function (x) { return pc(x.m); }) +
     line('Operating profit (EBIT)', mil(f.rev0 * f.m0), function (x) { return mil(x.ebit); }) +
     line('Less taxes', '', function (x) { return mil(x.nopat - x.ebit); }) +
-    line('After-tax operating profit (NOPAT)', '', function (x) { return mil(x.nopat); }) +
+    line('NOPAT', '', function (x) { return mil(x.nopat); }) +
     line(f.reinvest === 'pct' ? 'Less net investment (capex − D&amp;A + working capital)' : 'Less reinvestment (capex − D&amp;A + working capital)', '', function (x) { return mil(-x.inv); }) +
-    line('Unlevered free cash flow', '', function (x) { return mil(x.fcf); }, 1) +
-    line('Value today', '', function (x) { return x.pv == null ? 'Step 3' : mil(x.pv); }) + '</tbody>';
+    line('Unlevered free cash flow (UFCF)', '', function (x) { return mil(x.fcf); }, 1) +
+    line('Discount factor, mid-year', '', function (x) { return x.pv == null ? '' : x.df.toFixed(3); }) +
+    line('PV of UFCF', '', function (x) { return x.pv == null ? 'Step 3' : mil(x.pv); }) + '</tbody>';
 
   var J = CO[C.ticker] && CO[C.ticker].done, H = J && J.history;
   document.getElementById('hist').hidden = !H;
@@ -758,7 +762,88 @@ function comps(dcfValue) {
   });
 }
 
+// ---- Excel export ------------------------------------------------------------------
+// The current case as a working model: same cells as the DCF template (so it imports back), live formulas with their
+// results cached for viewers that don't recalculate. Inputs blue, formulas black.
+function loadScript(src) {
+  return new Promise(function (ok, no) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+}
+function exportXlsx() {
+  var go = window.ExcelJS ? Promise.resolve() : loadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js');
+  return go.then(function () {
+    var f = C.fact, a = A, r = dcf(f, a), y0 = Y0(), stc = f.reinvest !== 'pct';
+    var wb = new ExcelJS.Workbook(), ws = wb.addWorksheet('DCF');
+    wb.calcProperties.fullCalcOnLoad = true;
+    ws.columns = [{ width: 2 }, { width: 44 }, { width: 14 }].concat(Array(12).fill({ width: 12 }), [{ width: 70 }]);
+    var PCT = '0.0%', MIL = '#,##0;(#,##0)', PX = '#,##0.00', BLUE = { color: { argb: 'FF0000FF' } };
+    var put = function (ref, v, fmt, input) {
+      var c = ws.getCell(ref);
+      c.value = v; if (fmt) c.numFmt = fmt; if (input) c.font = BLUE;
+    };
+    var fx = function (ref, formula, result, fmt) { put(ref, { formula: formula, result: result }, fmt); };
+    var head = function (ref, t) { put(ref, t); ws.getCell(ref).font = { bold: true }; };
+    head('B2', C.name + (C.ticker ? ' (' + C.ticker + ')' : '') + ' · Independent 10-year DCF');
+    put('B3', C.unit + ' unless stated · valuation date ' + niceDate(f.date) + ' · blue = input, black = formula · exported from the DCF Calculator');
+    head('B5', 'INPUTS');
+    var d = f.date.split('-');
+    var inputs = [
+      [6, 'Valuation date', new Date(Date.UTC(+d[0], d[1] - 1, +d[2])), 'd mmm yyyy'], [7, 'Share price (' + C.cur + ')', f.price, PX],
+      [8, 'Shares outstanding (millions)', f.shares, '#,##0.0'], [9, (f.baseLabel || (y0 - 1) + 'A') + ' revenue', f.rev0, MIL],
+      [10, 'Net cash / (net debt)', f.netCash, MIL], [11, 'Total debt', f.debt, MIL], [12, 'Risk-free rate (US 10-yr)', f.rf, '0.00%'],
+      [13, 'Beta', a.beta, '0.00', 'beta'], [14, 'Equity risk premium', a.erp, '0.00%', 'erp'], [15, C.crpLabel, a.crp, '0.00%', 'crp'],
+      [17, 'Cost of debt (before tax)', a.kd, '0.00%', 'kd'], [18, 'Tax saving on interest', f.tShield, PCT],
+      [21, 'Tax rate (forecast)', a.tax, PCT, 'tax'], [22, stc ? 'Sales-to-capital ratio' : 'Net investment (% of revenue)', a.inv, stc ? '0.00' : PCT, 'inv'],
+      [23, 'Terminal growth', a.tg, '0.00%', 'tg'], [24, 'Terminal ROIC', a.roic, PCT, 'roic'], [25, 'Terminal operating margin', a.lr, PCT, 'lr'],
+      [26, 'Terminal tax rate', a.taxT, PCT, 'taxT']];
+    inputs.forEach(function (x) { put('B' + x[0], x[1]); put('C' + x[0], x[2], x[3], true); if (x[4] && C.notes[x[4]]) put('P' + x[0], C.notes[x[4]]); });
+    put('B16', 'Cost of equity'); fx('C16', 'C12+C13*C14+C15', r.ke, '0.00%');
+    put('B19', 'Debt share of capital'); fx('C19', 'C11/(C11+C7*C8)', r.wd, '0.00%');
+    head('B20', 'WACC'); fx('C20', 'C16*(1-C19)+C17*(1-C18)*C19', r.wacc, '0.00%');
+
+    head('B29', 'PROJECTION');
+    var cols = 'EFGHIJKLMN'.split('');
+    put('D30', f.baseLabel || (y0 - 1) + 'A'); cols.forEach(function (c, i) { put(c + '30', (y0 + i) + 'E'); }); put('O30', 'Terminal');
+    ['B31', 'Revenue growth', 'B32', 'Revenue', 'B33', 'Operating margin', 'B34', 'EBIT', 'B35', 'NOPAT',
+     'B36', stc ? 'Less: reinvestment (Δrevenue ÷ sales-to-capital)' : 'Less: net investment (revenue × rate)', 'B37', 'Unlevered free cash flow (UFCF)',
+     'B38', 'Share of year counted', 'B39', 'Years to cash flow (mid-year)', 'B40', 'Discount factor', 'B41', 'PV of UFCF']
+      .forEach(function (v, i, xs) { if (i % 2 === 0) put(v, xs[i + 1]); });
+    fx('D32', 'C9', f.rev0, MIL); put('D33', f.m0, PCT, true);
+    var stub = (Date.UTC(y0, 11, 31) - Date.UTC(+d[0], d[1] - 1, +d[2])) / 864e5 / 365;  // as in dcf()
+    r.rows.forEach(function (x, i) {
+      var c = cols[i], p = i ? cols[i - 1] : 'D';
+      put(c + '31', x.g, PCT, true); put(c + '33', x.m, PCT, true);
+      fx(c + '32', p + '32*(1+' + c + '31)', x.rev, MIL); fx(c + '34', c + '32*' + c + '33', x.ebit, MIL);
+      fx(c + '35', c + '34*(1-$C$21)', x.nopat, MIL);
+      fx(c + '36', stc ? '-MAX(0,' + c + '32-' + p + '32)/$C$22' : '-' + c + '32*$C$22', -x.inv, MIL);
+      fx(c + '37', c + '35+' + c + '36', x.fcf, MIL);
+      if (i) put(c + '38', 1); else fx('E38', '(DATE(' + y0 + ',12,31)-$C$6)/365', stub, '0.000');
+      fx(c + '39', i ? '$E$38+' + i + '-0.5' : 'E38/2', i ? stub + i - 0.5 : stub / 2, '0.000');
+      fx(c + '40', '1/(1+$C$20)^' + c + '39', x.df, '0.000');
+      fx(c + '41', c + '37*' + c + '38*' + c + '40', x.pv, MIL);
+    });
+    fx('O31', 'C23', a.tg, PCT); fx('O32', 'N32*(1+O31)', r.revT, MIL); fx('O33', 'C25', a.lr, PCT); fx('O34', 'O32*O33', r.revT * a.lr, MIL);
+    fx('O35', 'O34*(1-C26)', r.nopatT, MIL); fx('O36', '-O35*C23/C24', r.fcfT - r.nopatT, MIL); fx('O37', 'O35+O36', r.fcfT, MIL);
+
+    head('B43', 'VALUATION');
+    [[44, 'Sum of PV of UFCF, ' + y0 + '–' + (y0 + 9), 'SUM(E41:N41)', r.pv, MIL], [45, 'Terminal value (Gordon growth, end of ' + (y0 + 9) + ')', 'O37/(C20-C23)', r.tv, MIL],
+     [46, 'PV of terminal value', 'D45/(1+C20)^(E38+9)', r.pvTv, MIL], [47, 'Enterprise value', 'D44+D46', r.ev, MIL], [48, '  Terminal value as % of EV', 'D46/D47', r.tvShare, PCT],
+     [49, 'Plus: net cash / (less: net debt)', 'C10', f.netCash, MIL], [50, 'Equity value', 'D47+D49', r.eq, MIL],
+     [51, 'Intrinsic value per share (' + C.cur + ')', 'D50/C8', r.value, PX], [52, 'Current price (' + C.cur + ')', 'C7', f.price, PX],
+     [53, 'Upside / (downside)', 'D51/D52-1', r.value / f.price - 1, PCT]]
+      .forEach(function (x) { put('B' + x[0], x[1]); fx('D' + x[0], x[2], x[3], x[4]); });
+    ['B47', 'B50', 'B51', 'D51'].forEach(function (k) { ws.getCell(k).font = { bold: true }; });
+    put('B55', 'Terminal ROIC ' + (a.roic >= r.wacc ? 'is at or above' : 'is below') + ' WACC: more terminal growth ' + (a.roic >= r.wacc ? 'adds' : 'lowers') + ' value.');
+    return wb.xlsx.writeBuffer();
+  }).then(function (buf) {
+    var url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })), el = document.createElement('a');
+    el.href = url; el.download = (C.ticker || C.name) + ' DCF.xlsx'; document.body.appendChild(el); el.click(); el.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    say('Downloaded ' + el.download + ': your current case with live formulas. You can import it back here too.');
+  }).catch(function () { say('Could not build the Excel file. Check your connection and try again.', 1); });
+}
+
 // ---- events ------------------------------------------------------------------------
+document.getElementById('xlsx').addEventListener('click', exportXlsx);
 document.getElementById('form').addEventListener('input', function (e) {
   var t = e.target; if (!t.dataset.k) return;
   var v = parseFloat(t.value); if (!isFinite(v)) return;

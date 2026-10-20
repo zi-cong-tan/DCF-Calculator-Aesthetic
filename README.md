@@ -41,7 +41,8 @@ Nothing is lost in the translation. The four bundled models match their source s
 3. **Read the answer.** The top row shows the value per share, the market price, and the long-run margin the price needs.
 4. **Change the assumptions.** Edit any box on the left. Percentages are typed as plain numbers (25 means 25%). Edited boxes are outlined and show the base value, and everything on the right updates as you type.
 5. **Stress-test it.** Click **Bear case** for a pessimistic version or **Bull case** for an optimistic one, or check the sensitivity grid to see the value across different discount rates and margins. **Reset to the base case** puts everything back.
-6. **Add your own company.**
+6. **Take it to Excel.** **Download as Excel** saves your current case as a working model with live formulas (inputs in blue). It uses the same layout as the template, so you can edit it and import it back.
+7. **Add your own company.**
    - **Import a DCF spreadsheet:** any `.xlsx` built on the same template. Copy one of the files in `examples/` and fill in your company.
    - **Add a company by hand:** enter the reported figures from the latest annual report. The starting assumptions are placeholders, so change them before trusting the value.
 
