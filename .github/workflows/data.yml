@@ -21,6 +21,8 @@ jobs:
       - run: python3 tools/build_data.py
         env:
           SEC_CONTACT: ${{ secrets.SEC_CONTACT }}
+          ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
+          ALPACA_SECRET: ${{ secrets.ALPACA_SECRET }}
       - name: Commit if anything changed
         run: |
           git config user.name 'github-actions[bot]'

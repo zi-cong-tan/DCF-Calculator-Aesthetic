@@ -5,15 +5,17 @@ Run: SEC_CONTACT=you@example.com python3 tools/build_data.py [TICKER ...]
   - The SEC asks every request to name a contact; it is sent only to the SEC and never saved.
   - With tickers, only those are rebuilt (the index still lists every company).
 Writes data/index.json (ticker, name, sector) and data/co/<TICKER>.json. GitHub Actions runs it nightly.
-Browsers cannot call the SEC or Yahoo directly (no CORS), so the site reads these files.
+Prices and betas come from Alpaca when ALPACA_KEY and ALPACA_SECRET are set (free market data plan), else from Yahoo.
+Browsers cannot call the SEC, Alpaca or Yahoo directly (no CORS, and Alpaca's key must stay secret), so the site reads these files.
 """
-import csv, datetime, io, json, os, pathlib, sys, time, urllib.request
+import csv, datetime, io, json, os, pathlib, sys, time, urllib.parse, urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / 'data'
 SEC_UA = 'dcf-calculator ' + os.environ['SEC_CONTACT']
 WEB_UA = 'Mozilla/5.0'
 SP500 = 'https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv'
 YEARS = 3
+ALPACA = {'APCA-API-KEY-ID': os.environ.get('ALPACA_KEY', ''), 'APCA-API-SECRET-KEY': os.environ.get('ALPACA_SECRET', '')}
 
 # First tag a company reports wins. Flows are full-year amounts, stocks are balances at a date.
 FLOWS = {
@@ -47,10 +49,10 @@ STOCKS = {
 }
 
 
-def get(url, ua, tries=3):
+def get(url, ua, tries=3, headers={}):
     for k in range(tries):
         try:
-            return urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': ua}), timeout=30).read()
+            return urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': ua, **headers}), timeout=30).read()
         except Exception:
             if k == tries - 1:
                 raise
@@ -88,23 +90,47 @@ def shares_out(facts):
     return None
 
 
-def market(ticker, spx):
-    """Last close, its date, and the raw 5-year monthly beta against the S&P 500."""
+def regress(closes, spx):
+    """Raw beta from monthly closes, {month: close} for the stock and the index; None under three years."""
+    common = [t for t in sorted(closes) if t in spx and closes[t] and spx[t]]
+    if len(common) < 37:
+        return None
+    a = [closes[b] / closes[a] - 1 for a, b in zip(common, common[1:])]
+    m = [spx[b] / spx[a] - 1 for a, b in zip(common, common[1:])]
+    ma, mm = sum(a) / len(a), sum(m) / len(m)
+    return sum((x - ma) * (y - mm) for x, y in zip(a, m)) / sum((y - mm) ** 2 for y in m)
+
+
+def alpaca(symbols, timeframe, start):
+    """Split- and dividend-adjusted closes, {symbol: {bar date: close}}, 100 symbols a request.
+    The free plan serves full-market (SIP) bars only once they are 15 minutes old."""
+    end = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=16)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    out = {}
+    for i in range(0, len(symbols), 100):
+        q = {'symbols': ','.join(symbols[i:i + 100]), 'timeframe': timeframe, 'start': start, 'end': end,
+             'adjustment': 'all', 'feed': 'sip', 'limit': 10000}
+        while True:
+            j = json.loads(get('https://data.alpaca.markets/v2/stocks/bars?' + urllib.parse.urlencode(q), WEB_UA, headers=ALPACA))
+            for sym, bars in (j.get('bars') or {}).items():
+                out.setdefault(sym, {}).update((b['t'][:10], b['c']) for b in bars)
+            if not j.get('next_page_token'):
+                break
+            q['page_token'] = j['next_page_token']
+    return out
+
+
+def market(ticker, spx, alp):
+    """Last close, its date, and the raw 5-year monthly beta against the S&P 500 (SPY on Alpaca)."""
+    if alp and ticker in alp[0] and ticker in alp[1]:
+        day = max(alp[1][ticker])
+        return alp[1][ticker][day], day, regress(alp[0][ticker], alp[0].get('SPY', {}))
     j = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker.replace(".", "-")}?range=5y&interval=1mo', WEB_UA))
     r = j['chart']['result'][0]
     px, when = r['meta']['regularMarketPrice'], datetime.datetime.fromtimestamp(r['meta']['regularMarketTime'], datetime.UTC).date().isoformat()
-    closes = dict(zip(r['timestamp'], r['indicators']['adjclose'][0]['adjclose']))
-    beta = None
-    common = [t for t in sorted(closes) if t in spx and closes[t] and spx[t]]
-    if len(common) >= 37:  # three years of months at least
-        a = [closes[b] / closes[a] - 1 for a, b in zip(common, common[1:])]
-        m = [spx[b] / spx[a] - 1 for a, b in zip(common, common[1:])]
-        ma, mm = sum(a) / len(a), sum(m) / len(m)
-        beta = sum((x - ma) * (y - mm) for x, y in zip(a, m)) / sum((y - mm) ** 2 for y in m)
-    return px, when, beta
+    return px, when, regress(dict(zip(r['timestamp'], r['indicators']['adjclose'][0]['adjclose'])), spx)
 
 
-def company(cik, ticker, spx, financial):
+def company(cik, ticker, spx, alp, financial):
     facts = json.loads(get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{int(cik):010d}.json', SEC_UA))['facts']
     g = facts.get('us-gaap', {})
     f = {k: series(g, t, True) for k, t in FLOWS.items()}
@@ -149,7 +175,7 @@ def company(cik, ticker, spx, financial):
     at = lambda k: q[k].get(bal, 0) / m if bal else 0
     debt = at('debtc') + at('cp') + at('debtn')
     eq = q['equity'].get(bal) / m if bal and q['equity'].get(bal) is not None else None
-    px, when, beta = market(ticker, spx)
+    px, when, beta = market(ticker, spx, alp)
     return {'ticker': ticker, 'cik': int(cik), 'price': px, 'priceDate': when, 'shares': (shares_out(facts) or 0) / m,
             'balanceDate': bal, 'cash': at('cash') + at('sti'), 'debt': debt, 'equity': eq,
             'taxRate': sum(rates) / len(rates) if rates else None, 'betaRaw': beta, 'history': hist}
@@ -169,6 +195,15 @@ if __name__ == '__main__':
     rf, rf_date = ten_year()
     j = json.loads(get('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?range=5y&interval=1mo', WEB_UA))['chart']['result'][0]
     spx = dict(zip(j['timestamp'], j['indicators']['adjclose'][0]['adjclose']))
+    alp = None
+    if all(ALPACA.values()):
+        syms = [r['Symbol'] for r in members if not only or r['Symbol'] in only] + ['SPY']
+        today = datetime.date.today()
+        try:  # (monthly, daily); a company Alpaca lacks still falls back to Yahoo
+            alp = (alpaca(syms, '1Month', today.replace(year=today.year - 5, day=1).isoformat()),
+                   alpaca(syms, '1Day', (today - datetime.timedelta(days=10)).isoformat()))
+        except Exception as e:
+            print('Alpaca failed, prices from Yahoo:', str(e)[:120])
     (ROOT / 'co').mkdir(parents=True, exist_ok=True)
     index, failed = [], []
     for row in members:
@@ -178,7 +213,7 @@ if __name__ == '__main__':
                 index.append([t, row['Security'], row['GICS Sector']])
             continue
         try:
-            c = company(row['CIK'], t, spx, row['GICS Sector'] == 'Financials')
+            c = company(row['CIK'], t, spx, alp, row['GICS Sector'] == 'Financials')
         except Exception as e:  # one bad company never stops the run
             c, why = None, str(e)[:80]
         else:
