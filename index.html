@@ -135,6 +135,13 @@
   .sens td.on { background: var(--acc); color: var(--on-acc); font-weight: 700; border-radius: 4px; }
   .sens td.px { outline: 2px dashed var(--muted); outline-offset: -3px; }
   .sens th:first-child, .sens td:first-child { text-align: left; color: var(--muted); }
+  .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  #comps th:last-child { position: relative; }
+  #comps td small { color: var(--muted); font-size: 12.5px; margin-left: 6px; }
+  #comps tr.me td { color: var(--muted); }
+  .x { font: 600 18px/1 var(--body); color: var(--muted); background: none; border: 1px solid transparent; border-radius: 6px; min-width: 36px; min-height: 36px; cursor: pointer; }
+  .x:hover { color: var(--fg); border-color: var(--rule); }
+  .peerbar input { flex: 1 1 260px; font: 500 15px/1 var(--body); color: var(--fg); background: var(--bg); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; min-height: 44px; }
   footer { margin-top: 28px; font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 900px; }
   .theme { font: 600 13px/1 var(--body); color: var(--muted); background: none; border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; min-height: 44px; cursor: pointer; }
 
@@ -159,6 +166,8 @@
     .stat .v { font-size: 26px; }
     .hero { grid-template-columns: 1fr 1fr; gap: 10px; }
     .stat { padding: 12px 14px; }
+    #comps td:first-child { white-space: normal; min-width: 128px; max-width: 150px; }
+    #comps td small { display: block; margin: 2px 0 0; }
   }
 </style>
 </head>
@@ -244,6 +253,20 @@
           <div class="bar"><button class="btn" id="remove" type="button" hidden>Remove from this browser</button></div>
         </section>
       </div>
+
+      <section class="card" id="comps-card" hidden>
+        <h2>Check against comparable companies</h2>
+        <p class="sub" id="comps-note"></p>
+        <div class="tw"><table id="comps"></table></div>
+        <div class="bar peerbar">
+          <input id="peer-add" list="peer-list" placeholder="Add a peer: ticker or name" aria-label="Add a peer company" autocomplete="off">
+          <datalist id="peer-list"></datalist>
+          <button class="btn" id="peer-reset" type="button" hidden>Back to the default peers</button>
+        </div>
+        <h3 class="h3">Value per share from the peer medians</h3>
+        <p class="sub">The median multiple times this company’s own figure for the same year, then the same bridge as step 4: plus net cash, divided by shares.</p>
+        <div class="rows" id="comps-val"></div>
+      </section>
 
       <section class="card">
         <h2>Sensitivity: value per share</h2>
@@ -671,6 +694,68 @@ function render() {
 
   document.querySelectorAll('.f[data-k]').forEach(function (el) { el.classList.toggle('chg', Math.abs(A[el.dataset.k] - C.base[el.dataset.k]) > 1e-9); });
   document.querySelectorAll('.yr').forEach(function (el) { el.classList.toggle('chg', Math.abs(A[el.dataset.k][+el.dataset.i] - C.base[el.dataset.k][+el.dataset.i]) > 1e-9); });
+  comps(ok ? r.value : null);
+}
+
+// ---- comparable companies ------------------------------------------------------------
+// INDEX rows: [ticker, name, sector, sub-industry, market value $bn]. Default peers: the same GICS sub-industry,
+// closest in market value; topped up from the sector when the industry has fewer than three others.
+function row(t) { return INDEX.filter(function (x) { return x[0] === t; })[0]; }
+function defaultPeers(t) {
+  var me = row(t); if (!me || !(me[4] > 0)) return [];
+  var near = function (a, b) { return Math.abs(Math.log(a[4] / me[4])) - Math.abs(Math.log(b[4] / me[4])); };
+  var others = INDEX.filter(function (x) { return x[0] !== t && x[4] > 0; });
+  var same = others.filter(function (x) { return x[3] === me[3]; }).sort(near).slice(0, 8);
+  if (same.length < 3) same = same.concat(others.filter(function (x) { return x[2] === me[2] && x[3] !== me[3]; }).sort(near).slice(0, 5 - same.length));
+  return same.map(function (x) { return x[0]; });
+}
+function peers() { return store('peers:' + C.id) || defaultPeers(C.ticker); }
+// Last fiscal year from the 10-K, price from the latest close. A multiple on a loss (or a missing figure) is left out.
+function multiples(j) {
+  var y = j.history[j.history.length - 1], mcap = j.price * j.shares, ev = mcap + j.debt - j.cash, ebitda = y.da ? y.ebit + y.da : null;
+  var per = function (a, b) { return b > 0 ? a / b : null; };
+  return { mcap: mcap, ev: ev, rev: y.revenue, ebitda: ebitda, ni: y.ni, end: y.end, evRev: per(ev, y.revenue), evEbitda: per(ev, ebitda), pe: y.ni == null ? null : per(mcap, y.ni) };
+}
+function median(xs) {
+  xs = xs.filter(function (v) { return v != null; }).sort(function (a, b) { return a - b; });
+  var n = xs.length; return n ? (xs[(n - 1) >> 1] + xs[n >> 1]) / 2 : null;
+}
+function comps(dcfValue) {
+  var card = document.getElementById('comps-card'), t = C.ticker, co = C;
+  card.hidden = !t || !row(t);
+  if (card.hidden) return;
+  var list = peers();
+  document.getElementById('peer-reset').hidden = !store('peers:' + C.id);
+  document.getElementById('peer-list').innerHTML = INDEX.filter(function (x) { return x[0] !== t && list.indexOf(x[0]) < 0; })
+    .map(function (x) { return '<option value="' + esc(x[0]) + '">' + esc(x[1]) + '</option>'; }).join('');
+  Promise.all([t].concat(list).map(function (p) { return loadCo(p).catch(function () { CO[p] = null; return null; }); })).then(function (js) {
+    if (C !== co) return;
+    var me = js[0] && multiples(js[0]), ps = list.map(function (p, i) { return js[i + 1] && { t: p, m: multiples(js[i + 1]) }; }).filter(Boolean);
+    var med = { evRev: median(ps.map(function (p) { return p.m.evRev; })), evEbitda: median(ps.map(function (p) { return p.m.evEbitda; })), pe: median(ps.map(function (p) { return p.m.pe; })) };
+    var x = function (v) { return v == null ? '—' : v.toFixed(1) + '×'; }, sub = (row(t) || [])[3];
+    var line = function (cls, name, m, end) {
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + name + '</td><td>' + (m && m.mcap ? num(m.mcap / 1000, 1) : '') + '</td><td>' + x(m && m.evRev) + '</td><td>' + x(m && m.evEbitda) + '</td><td>' + x(m && m.pe) + '</td><td>' + end + '</td></tr>';
+    };
+    document.getElementById('comps').innerHTML = '<thead><tr><th>Company</th><th>Market value, $bn</th><th>EV / revenue</th><th>EV / EBITDA</th><th>P / E</th><th><span class="vh">Remove</span></th></tr></thead><tbody>' +
+      ps.map(function (p) {
+        var r0 = row(p.t);
+        return line('', esc(p.t) + '<small>' + esc(r0 ? r0[1] : '') + (r0 && r0[3] !== sub ? ', ' + esc(r0[3]) : '') + '</small>', p.m,
+          '<button class="x" type="button" data-rm="' + esc(p.t) + '" aria-label="Remove ' + esc(p.t) + '">×</button>');
+      }).join('') +
+      (ps.length ? line('em', 'Peer median', med, '') : '') +
+      line('me', esc(t) + ' at today’s price', me, '') + '</tbody>';
+    document.getElementById('comps-note').textContent = !ps.length ? 'No peers yet: add some below.'
+      : 'Peers in the same industry (' + sub + '), closest in market value; others are marked with their industry. Multiples use each company’s last fiscal year from its 10-K and the latest close. Losses are left out of the medians.';
+    var f = co.fact, val = function (m, v, bridge) { return m == null || v == null || !(v > 0) ? null : (bridge ? m * v + f.netCash : m * v) / f.shares; };
+    var vs = [['EV / revenue', med.evRev, me && me.rev, 1], ['EV / EBITDA', med.evEbitda, me && me.ebitda, 1], ['P / E (net income, no bridge)', med.pe, me && me.ni, 0]]
+      .map(function (q) { return [q[0], q[1], val(q[1], q[2], q[3])]; });
+    var got = vs.filter(function (q) { return q[2] != null; }).map(function (q) { return q[2]; });
+    var lo = Math.min.apply(null, got), hi = Math.max.apply(null, got);
+    document.getElementById('comps-val').innerHTML = vs.map(function (q) {
+      return '<div><span>' + q[0] + (q[1] != null ? ', ' + x(q[1]) : '') + '</span><b>' + (q[2] == null ? '—' : money(co, q[2], 2)) + '</b></div>';
+    }).join('') + (got.length ? '<div class="tot"><span>Range from comps</span><b>' + money(co, lo, 2) + (got.length > 1 ? ' to ' + money(co, hi, 2) : '') + '</b></div>' : '') +
+      '<div><span>Your DCF value' + (dcfValue == null || !got.length ? '' : dcfValue < lo ? ', below the comps range' : dcfValue > hi ? ', above the comps range' : ', inside the comps range') + '</span><b>' + (dcfValue == null ? '—' : money(co, dcfValue, 2)) + '</b></div>';
+  });
 }
 
 // ---- events ------------------------------------------------------------------------
@@ -696,6 +781,18 @@ document.getElementById('q').addEventListener('keydown', function (e) {
   if (e.key !== 'Enter') return;
   var first = document.querySelector('#chips .chip:not([hidden])'); if (first) first.click();
 });
+document.getElementById('comps').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-rm]'); if (!b) return;
+  store('peers:' + C.id, peers().filter(function (p) { return p !== b.dataset.rm; })); render();
+});
+document.getElementById('peer-add').addEventListener('change', function (e) {
+  var v = e.target.value.trim().toLowerCase(), hit = INDEX.filter(function (x) { return x[0].toLowerCase() === v; })[0]
+    || INDEX.filter(function (x) { return x[1].toLowerCase().indexOf(v) >= 0; })[0];
+  e.target.value = '';
+  if (!v || !hit || hit[0] === C.ticker || peers().indexOf(hit[0]) >= 0) return;
+  store('peers:' + C.id, peers().concat(hit[0])); render();
+});
+document.getElementById('peer-reset').addEventListener('click', function () { store('peers:' + C.id, null); render(); });
 document.getElementById('reset').addEventListener('click', function () { A = clone(C.base); save(); buildForm(); render(); });
 document.getElementById('bear').addEventListener('click', function () { A = withLr(clone(C.base), C.bear.lr); save(); buildForm(); render(); });
 document.getElementById('bull').addEventListener('click', function () { A = withLr(clone(C.base), C.bull.lr); save(); buildForm(); render(); });

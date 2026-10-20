@@ -4,7 +4,7 @@ Every figure is reported (10-K / 10-Q, the US Treasury, the market close), nothi
 Run: SEC_CONTACT=you@example.com python3 tools/build_data.py [TICKER ...]
   - The SEC asks every request to name a contact; it is sent only to the SEC and never saved.
   - With tickers, only those are rebuilt (the index still lists every company).
-Writes data/index.json (ticker, name, sector) and data/co/<TICKER>.json. GitHub Actions runs it nightly.
+Writes data/index.json (ticker, name, sector, sub-industry, market value in $bn, for search and comps) and data/co/<TICKER>.json. GitHub Actions runs it nightly.
 Prices and betas come from Alpaca when ALPACA_KEY and ALPACA_SECRET are set (free market data plan), else from Yahoo.
 Browsers cannot call the SEC, Alpaca or Yahoo directly (no CORS, and Alpaca's key must stay secret), so the site reads these files.
 """
@@ -29,7 +29,8 @@ FLOWS = {
               'PaymentsToAcquireOtherProductiveAssets', 'PaymentsForConstructionInProcess',  # utilities and telecoms
               'PaymentsToAcquireOilAndGasPropertyAndEquipment', 'PaymentsToDevelopRealEstateAssets'],
     # some (NextEra, DTE, CMS, ConocoPhillips) tag capex only under their own labels, which company facts leave out: stays empty
-    'amort': ['AmortizationOfIntangibleAssets'],  # for the EBITA margin; many companies don't tag it, then it stays empty
+    'amort': ['AmortizationOfIntangibleAssets'],
+    'ni': ['NetIncomeLoss', 'ProfitLoss'],  # for P/E in comps; the first is the parent's share  # for the EBITA margin; many companies don't tag it, then it stays empty
     'tax': ['IncomeTaxExpenseBenefit'],
     'interest': ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt', 'InterestAndDebtExpense',
                  'InterestExpenseLongTermDebt',
@@ -168,7 +169,7 @@ def company(cik, ticker, spx, alp, financial):
         e, proxy = ebit(d)
         hist.append({'end': d, 'revenue': f['revenue'][d] / m, 'ebit': e / m, 'ebitProxy': proxy, 'da': f['da'].get(d, 0) / m,
                      'capex': opt(f['capex'], d), 'dnwc': None if dn is None else dn / m,
-                     'interest': opt(f['interest'], d), 'amort': opt(f['amort'], d)})
+                     'interest': opt(f['interest'], d), 'amort': opt(f['amort'], d), 'ni': opt(f['ni'], d)})
     rates = [f['tax'][d] / f['pretax'][d] for d in ends[1:] if f['tax'].get(d) is not None and f['pretax'].get(d, 0) > 0]
 
     bal = max(q['cash']) if q['cash'] else None
@@ -210,7 +211,8 @@ if __name__ == '__main__':
         t = row['Symbol']
         if only and t not in only:
             if (ROOT / 'co' / f'{t}.json').exists():
-                index.append([t, row['Security'], row['GICS Sector']])
+                c = json.loads((ROOT / 'co' / f'{t}.json').read_text())
+                index.append([t, row['Security'], row['GICS Sector'], row['GICS Sub-Industry'], round(c['price'] * c['shares'] / 1000, 1)])
             continue
         try:
             c = company(row['CIK'], t, spx, alp, row['GICS Sector'] == 'Financials')
@@ -227,7 +229,7 @@ if __name__ == '__main__':
             continue
         c.update(name=row['Security'], sector=row['GICS Sector'], rf=rf, rfDate=rf_date)
         (ROOT / 'co' / f'{t}.json').write_text(json.dumps(c, separators=(',', ':')))
-        index.append([t, row['Security'], row['GICS Sector']])
+        index.append([t, row['Security'], row['GICS Sector'], row['GICS Sub-Industry'], round(c['price'] * c['shares'] / 1000, 1)])
         time.sleep(0.15)  # the SEC allows 10 requests a second; stay well under
     (ROOT / 'index.json').write_text(json.dumps({'built': datetime.date.today().isoformat(), 'companies': index}, separators=(',', ':')))
     print(f'{len(index)} companies written, {len(failed)} skipped')
