@@ -469,6 +469,14 @@ function fromLive(j) {
              lr: 'Default: the same ' + h.length + '-year average margin.', inv: withCap.length ? 'Default: average capex − D&A + working capital over ' + withCap.length + ' years with reported capex, as a share of revenue (see the SEC history under step 1).'
                : 'Default: capex is not in the filings’ standard labels, so this is what growth needs at this return on capital: first-year growth × after-tax margin ÷ ROIC. Check it against the cash flow statement.',
              tg: 'Default: 2.5%, as in the bundled models.', roic: ic > 0 ? 'Default: last year’s after-tax operating profit ÷ (equity + debt − cash), kept between 6% and 50%.' : 'Default: 50%. Equity is negative after buybacks, so the return on capital is very high.' } };
+  // Steady state: returns at least cover the cost of capital (ROIC below WACC forever would mean every extra unit of
+  // growth destroys value). Last year's higher ROIC is kept; the forecast-years capex fallback above still uses it as reported.
+  var w = dcf(f, co.base).wacc, hist = co.base.roic;
+  if (hist < w) {
+    co.base.roic = Math.ceil(w * 1000) / 1000;
+    co.notes.roic = 'Default: last year’s ROIC (' + pc(hist) + ', after-tax operating profit ÷ (equity + debt − cash)) raised to the WACC (' + pc(co.base.roic) +
+      '): in steady state, returns are assumed to at least cover the cost of capital. Lower it if you think the business will keep destroying value.';
+  }
   co.facts = factRows(co);
   co.facts[0][0] = 'Price, ' + niceDate(f.date) + ' close';
   co.facts[2][0] = 'Revenue, fiscal year to ' + niceDate(last.end);
