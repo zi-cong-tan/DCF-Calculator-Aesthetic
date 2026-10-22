@@ -1,4 +1,5 @@
 """Build the searchable company data: one file per S&P 500 company, from SEC filings plus the last closing price.
+Financials (banks, brokers, insurers) get book equity and return on equity instead of free cash flow.
 
 Every figure is reported (10-K / 10-Q, the US Treasury, the market close), nothing is estimated.
 Run: SEC_CONTACT=you@example.com python3 tools/build_data.py [TICKER ...]
@@ -15,6 +16,8 @@ SEC_UA = 'dcf-calculator ' + os.environ['SEC_CONTACT']
 WEB_UA = 'Mozilla/5.0'
 SP500 = 'https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv'
 YEARS = 3
+# The S&P list can name a new parent before it has filed any results; read the old registrant until it does.
+CIK_HISTORY = {'XOM': 34088}  # ExxonMobil Holdings (2026 holding company) over Exxon Mobil Corp
 ALPACA = {'APCA-API-KEY-ID': os.environ.get('ALPACA_KEY', ''), 'APCA-API-SECRET-KEY': os.environ.get('ALPACA_SECRET', '')}
 
 # First tag a company reports wins. Flows are full-year amounts, stocks are balances at a date.
@@ -31,6 +34,9 @@ FLOWS = {
     # some (NextEra, DTE, CMS, ConocoPhillips) tag capex only under their own labels, which company facts leave out: stays empty
     'amort': ['AmortizationOfIntangibleAssets'],
     'ni': ['NetIncomeLoss', 'ProfitLoss'],  # for P/E in comps; the first is the parent's share  # for the EBITA margin; many companies don't tag it, then it stays empty
+    'opex': ['OperatingExpenses', 'CostsAndExpenses'],
+    'div': ['PaymentsOfDividendsCommonStock', 'PaymentsOfDividends'],  # financials: profit paid out, so not added to book value
+    'buyback': ['PaymentsForRepurchaseOfCommonStock'],  # revenue from operating income + expenses when no revenue tag (APA)
     'tax': ['IncomeTaxExpenseBenefit'],
     'interest': ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt', 'InterestAndDebtExpense',
                  'InterestExpenseLongTermDebt',
@@ -81,14 +87,25 @@ def series(g, tags, flow, forms=('10-K',)):
 
 
 def shares_out(facts):
-    """Latest shares outstanding from the filing cover, else diluted weighted shares."""
+    """Latest shares outstanding from the filing cover, else diluted weighted shares, else net income ÷ diluted EPS.
+    A source older than about a year (Simon and Fox stopped tagging the cover) is skipped."""
+    stale = (datetime.date.today() - datetime.timedelta(days=400)).isoformat()
     for ns, tag in (('dei', 'EntityCommonStockSharesOutstanding'), ('us-gaap', 'WeightedAverageNumberOfDilutedSharesOutstanding')):
         xs = facts.get(ns, {}).get(tag, {}).get('units', {}).get('shares', [])
         if xs:
             end = max(x['end'] for x in xs)
             last = max((x for x in xs if x['end'] == end), key=lambda x: x['filed'])['accn']
-            return sum(x['val'] for x in xs if x['end'] == end and x['accn'] == last)  # share classes add up
-    return None
+            vals = [x['val'] for x in xs if x['end'] == end and x['accn'] == last]
+            # cover: share classes add up; weighted shares: one figure per filer (Simon also reports its partnership)
+            n = sum(vals) if ns == 'dei' else max(vals)
+            if end >= stale and n:
+                return n
+    g = facts.get('us-gaap', {})
+    ni = series(g, ['NetIncomeLoss'], True, ('10-K', '10-Q'))
+    eps = {x['end']: x['val'] for x in g.get('EarningsPerShareDiluted', {}).get('units', {}).get('USD/shares', [])
+           if x.get('form') == '10-K'}
+    both = [d for d in ni if eps.get(d)]
+    return ni[max(both)] / eps[max(both)] if both else None
 
 
 def regress(closes, spx):
@@ -135,6 +152,10 @@ def company(cik, ticker, spx, alp, financial):
     facts = json.loads(get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{int(cik):010d}.json', SEC_UA))['facts']
     g = facts.get('us-gaap', {})
     f = {k: series(g, t, True) for k, t in FLOWS.items()}
+    if not f['revenue'] and f['ebit'] and f['opex']:  # no revenue tag: operating income plus operating expenses
+        f['revenue'] = {d: f['ebit'][d] + f['opex'][d] for d in f['ebit'] if d in f['opex']}
+    for d, v in f['ni'].items():  # no pre-tax tag (REITs, Casey's): net income plus income tax
+        f['pretax'].setdefault(d, v + f['tax'].get(d, 0))
     # capex: the largest of its labels each year, since some companies also tag a smaller part ("other" equipment)
     f['capex'] = {}
     for t in FLOWS['capex']:
@@ -182,6 +203,31 @@ def company(cik, ticker, spx, alp, financial):
             'taxRate': sum(rates) / len(rates) if rates else None, 'betaRaw': beta, 'history': hist}
 
 
+def company_fin(cik, ticker, spx, alp):
+    """Banks, brokers and insurers: valued on book equity and return on equity, not on free cash flow,
+    because for them interest and debt are the business itself."""
+    facts = json.loads(get(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{int(cik):010d}.json', SEC_UA))['facts']
+    g = facts.get('us-gaap', {})
+    ni, div, bb = (series(g, FLOWS[k], True) for k in ('ni', 'div', 'buyback'))
+    if max(series(g, ['NetIncomeLoss'], True) or ['']) < max(ni or ['']):  # only the total is tagged lately (Interactive Brokers): take out the outside owners' share
+        nci = series(g, ['NetIncomeLossAttributableToNoncontrollingInterest'], True)
+        ni = {d: v - nci.get(d, 0) for d, v in ni.items()}
+    eq = series(g, STOCKS['equity'], False)
+    ends = [d for d in sorted(ni) if d in eq][-(YEARS + 1):]
+    if len(ends) < 2:
+        return None
+    m = 1e6
+    hist = [{'end': d, 'ni': ni[d] / m, 'equity': eq[d] / m, 'roe': ni[d] / eq[p], 'paid': (div.get(d, 0) + bb.get(d, 0)) / m}
+            for p, d in zip(ends, ends[1:]) if eq[p] > 0]
+    if not hist:
+        return None
+    qe = series(g, STOCKS['equity'], False, ('10-K', '10-Q'))
+    bal = max(qe)
+    px, when, beta = market(ticker, spx, alp)
+    return {'kind': 'fin', 'ticker': ticker, 'cik': int(cik), 'price': px, 'priceDate': when, 'shares': (shares_out(facts) or 0) / m,
+            'balanceDate': bal, 'equity': qe[bal] / m, 'betaRaw': beta, 'history': hist}
+
+
 def ten_year():
     y = datetime.date.today().year
     rows = list(csv.reader(io.StringIO(get('https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/'
@@ -206,7 +252,7 @@ if __name__ == '__main__':
         except Exception as e:
             print('Alpaca failed, prices from Yahoo:', str(e)[:120])
     (ROOT / 'co').mkdir(parents=True, exist_ok=True)
-    index, failed = [], []
+    index, failed, skipped = [], [], []
     for row in members:
         t = row['Symbol']
         if only and t not in only:
@@ -215,23 +261,32 @@ if __name__ == '__main__':
                 index.append([t, row['Security'], row['GICS Sector'], row['GICS Sub-Industry'], round(c['price'] * c['shares'] / 1000, 1)])
             continue
         try:
-            c = company(row['CIK'], t, spx, alp, row['GICS Sector'] == 'Financials')
+            cik = CIK_HISTORY.get(t, row['CIK'])
+            fin = row['GICS Sector'] == 'Financials'
+            c = company_fin(cik, t, spx, alp) if fin else company(cik, t, spx, alp, False)
+            if fin and c is None:  # no net income or equity history: try the cash-flow model after all
+                c = company(cik, t, spx, alp, True)
         except Exception as e:  # one bad company never stops the run
             c, why = None, str(e)[:80]
         else:
             why = 'no operating or pre-tax profit, or under two years of revenue'
-        if c and not c['history'][-1]['ebit']:
+        if c and c.get('kind') != 'fin' and not c['history'][-1]['ebit']:
             c, why = None, 'no operating income reported'
         if c and c['price'] * c['shares'] < 1000:  # under $1bn: share count is off (e.g. share classes in other units)
             c, why = None, 'share count does not fit the price'
+        if c is None and why.startswith('share count'):
+            why = 'its share classes are not in the SEC data in a usable form'
+        elif c is None and why.startswith('no operating or'):
+            why = 'its filings have under two years of results (new spin-offs) or no profit line'
         if not c or not c['price']:
             failed.append(f'{t} ({why})')
+            skipped.append([t, row['Security'], why])
             continue
         c.update(name=row['Security'], sector=row['GICS Sector'], rf=rf, rfDate=rf_date)
         (ROOT / 'co' / f'{t}.json').write_text(json.dumps(c, separators=(',', ':')))
         index.append([t, row['Security'], row['GICS Sector'], row['GICS Sub-Industry'], round(c['price'] * c['shares'] / 1000, 1)])
         time.sleep(0.15)  # the SEC allows 10 requests a second; stay well under
-    (ROOT / 'index.json').write_text(json.dumps({'built': datetime.date.today().isoformat(), 'companies': index}, separators=(',', ':')))
+    (ROOT / 'index.json').write_text(json.dumps({'built': datetime.date.today().isoformat(), 'companies': index, 'skipped': skipped}, separators=(',', ':')))
     print(f'{len(index)} companies written, {len(failed)} skipped')
     for x in failed:
         print('  skipped', x)

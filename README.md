@@ -56,13 +56,15 @@ Everything runs inside your own browser. There is no server and no account, and 
 
 ## Notes
 
-**Company data.** `tools/build_data.py` pulls every S&P 500 company's 10-K and 10-Q figures from the SEC, the last close and five years of monthly prices (for beta), and the US 10-year Treasury yield. It writes `data/index.json` and one file per company in `data/co/`. A GitHub Action (`.github/workflows/data.yml`) runs it every weeknight after the US close; browsers cannot call the SEC directly, so the site reads these saved files. Banks and other companies without reported operating income are skipped, as an operating cash flow DCF does not fit them.
+**Company data.** `tools/build_data.py` pulls every S&P 500 company's 10-K and 10-Q figures from the SEC, the last close and five years of monthly prices (for beta), and the US 10-year Treasury yield. It writes `data/index.json` and one file per company in `data/co/`. A GitHub Action (`.github/workflows/data.yml`) runs it every weeknight after the US close; browsers cannot call the SEC directly, so the site reads these saved files. Banks, brokers and insurers get book equity, net income and payouts instead, and the page values them with an excess return model (book value plus the present value of profit above the cost of equity), because for them interest and debt are the business itself. A few companies can't be read automatically (new spin-offs, and share classes the SEC data doesn't report in a usable form); search names them and says why.
 
 **Running it yourself.** The SEC asks every request to name a contact email. Locally: `SEC_CONTACT=you@example.com python3 tools/build_data.py` (add tickers to rebuild only those). For your own fork's nightly run, add a repository secret named `SEC_CONTACT` (Settings → Secrets and variables → Actions). The email is sent only to the SEC and never saved in the repo.
 
 Prices and the risk-free rate are as of mid-October 2026. This is a learning and analysis tool, not investment advice.
 
 ## Updates
+
+**October 21, 2026**: **banks, brokers and insurers** (JPMorgan, Interactive Brokers, Goldman Sachs, Progressive…) now load, valued on book equity and return on equity with an excess return model; comps add P/B. ExxonMobil, APA, Casey's, Fox, Simon Property and three other real estate trusts now load too. Companies that still can't be loaded say why in search instead of "no match".
 
 **October 19, 2026 (night)**: from a comment on the model: **cost of debt from a synthetic credit rating** (interest coverage, Damodaran's spreads) instead of one flat spread; **EBITDA and EBITA margins** and interest coverage added to the SEC history. A margin selector was considered and left out: forecasting EBITDA with reinvestment net of D&A would count D&A twice. Also fixed capex for utilities and energy companies that report it under other labels (Dominion, Con Edison, WEC, EOG, Verizon); where capex isn't in the standard labels at all (NextEra, DTE, CMS, ConocoPhillips), the table shows a dash and reinvestment defaults to growth ÷ return on capital.
 

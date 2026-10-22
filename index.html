@@ -188,7 +188,7 @@
       <button class="btn" id="add" type="button">Add a company by hand</button>
     </div>
     <div class="chips" id="chips" role="group" aria-label="Choose a company"></div>
-    <p class="empty" id="none" hidden>No company matches. Search covers the S&amp;P 500; for anything else, import a DCF spreadsheet or add it by hand.</p>
+    <p class="empty" id="none" hidden>No company matches. Search covers the S&amp;P 500 (banks, brokers and insurers on book value and return on equity); for anything else, import a DCF spreadsheet or add it by hand.</p>
     <p class="msg" id="msg" role="status"></p>
   </section>
 
@@ -213,12 +213,12 @@
           <div class="stat main"><span class="lb">Intrinsic value per share</span><span class="v" id="r-val"></span><span class="s" id="r-vs"></span></div>
           <div class="stat"><span class="lb"><i class="lock"></i>Price</span><span class="v" id="r-px"></span><span class="s" id="r-pxs"></span></div>
           <div class="stat"><span class="lb">Base case</span><span class="v" id="r-base"></span><span class="s" id="r-diff"></span></div>
-          <div class="stat"><span class="lb">Implied long-run margin at the price</span><span class="v" id="r-imp"></span><span class="s" id="r-imps"></span></div>
+          <div class="stat"><span class="lb" id="r-impl">Implied long-run margin at the price</span><span class="v" id="r-imp"></span><span class="s" id="r-imps"></span></div>
         </div>
       </section>
 
       <section class="card">
-        <h2><span class="step">1</span>Revenue to unlevered free cash flow</h2>
+        <h2 data-fin="Book value to profit above the cost of equity"><span class="step">1</span><span>Revenue to unlevered free cash flow</span></h2>
         <p class="sub" id="unit-note"></p>
         <div class="tw"><table id="proj"></table></div>
         <div id="hist" hidden>
@@ -230,20 +230,20 @@
 
       <div class="two">
         <section class="card">
-          <h2><span class="step">2</span>Discount rate (WACC)</h2>
-          <p class="sub">Cost of equity = risk-free rate + beta × equity risk premium, blended with after-tax debt by market values.</p>
+          <h2 data-fin="Discount rate (cost of equity)"><span class="step">2</span><span>Discount rate (WACC)</span></h2>
+          <p class="sub" data-fin="Cost of equity = risk-free rate + beta × equity risk premium. No debt blend: for a bank or insurer, borrowing is part of the business, not its financing."><span>Cost of equity = risk-free rate + beta × equity risk premium, blended with after-tax debt by market values.</span></p>
           <div class="rows" id="wacc"></div>
         </section>
         <section class="card">
           <h2><span class="step">3</span>Terminal value</h2>
-          <p class="sub">The year after the forecast, at steady state: reinvestment is just enough to grow at terminal growth (growth ÷ return on capital).</p>
+          <p class="sub" data-fin="The year after the forecast: book value × (long-run ROE − cost of equity), growing at terminal growth."><span>The year after the forecast, at steady state: reinvestment is just enough to grow at terminal growth (growth ÷ return on capital).</span></p>
           <div class="rows" id="tv"></div>
         </section>
       </div>
 
       <div class="two">
         <section class="card">
-          <h2><span class="step">4</span>Enterprise value to intrinsic value per share</h2>
+          <h2 data-fin="Book equity to intrinsic value per share"><span class="step">4</span><span>Enterprise value to intrinsic value per share</span></h2>
           <p class="sub" id="cur-note"></p>
           <div class="rows" id="bridge"></div>
         </section>
@@ -270,14 +270,14 @@
       </section>
 
       <section class="card">
-        <h2>Sensitivity: WACC and long-run margin</h2>
-        <p class="sub">Rows move the discount rate, columns move the long-run margin. Centre is your current case; the dashed cell is nearest the price.</p>
+        <h2 data-fin="Sensitivity: cost of equity and long-run ROE"><span>Sensitivity: WACC and long-run margin</span></h2>
+        <p class="sub" data-fin="Rows move the cost of equity, columns move the long-run return on equity. Centre is your current case; the dashed cell is nearest the price."><span>Rows move the discount rate, columns move the long-run margin. Centre is your current case; the dashed cell is nearest the price.</span></p>
         <div class="tw"><table class="sens" id="sens"></table></div>
       </section>
 
       <section class="card">
-        <h2>Sensitivity: WACC and terminal growth</h2>
-        <p class="sub">Rows move the discount rate, columns move terminal growth. Higher growth adds value only when terminal ROIC is above WACC; below it, growing costs more than it earns, so value falls as growth rises (see step 3).</p>
+        <h2 data-fin="Sensitivity: cost of equity and terminal growth"><span>Sensitivity: WACC and terminal growth</span></h2>
+        <p class="sub" data-fin="Rows move the cost of equity, columns move terminal growth. Growth adds value only while the long-run ROE is above the cost of equity."><span>Rows move the discount rate, columns move terminal growth. Higher growth adds value only when terminal ROIC is above WACC; below it, growing costs more than it earns, so value falls as growth rises (see step 3).</span></p>
         <div class="tw"><table class="sens" id="sens2"></table></div>
       </section>
     </div>
@@ -285,6 +285,7 @@
 
   <footer>
     Built on the DCF template: mid-year discounting, a part-year for the first forecast year, and a terminal value in which reinvestment is growth ÷ return on capital.
+    Banks, brokers and insurers use an excess return model instead: book equity plus the present value of profit above the cost of equity, with the same timing.
     The four bundled models match their spreadsheets in <code>examples/</code> to the cent. Imported spreadsheets must use the same template. Importing a newer version of a bundled model replaces it.
     Companies you import or add, and your edits, are kept in this browser only.
   </footer>
@@ -323,6 +324,7 @@
 // ---- model: the DCF template, cell for cell ---------------------------
 // f: locked facts. a: assumptions; a.m holds the ten yearly margins, a.lr the terminal margin.
 function dcf(f, a) {
+  if (f.kind === 'fin') return fin(f, a);
   var ke = f.rf + a.beta * a.erp + a.crp;
   var wd = f.debt / (f.debt + f.price * f.shares);
   var wacc = ke * (1 - wd) + a.kd * (1 - f.tShield) * wd;
@@ -343,6 +345,23 @@ function dcf(f, a) {
   var ev = pv + pvTv, eq = ev + f.netCash;
   return { ke: ke, wd: wd, wacc: wacc, kdT: a.kd * (1 - f.tShield), revT: revT, nopatT: nopatT, fcfT: fcfT, tv: tv, rows: rows, pv: pv, pvTv: pvTv, ev: ev, tvShare: pvTv / ev, eq: eq, value: eq / f.shares,
            valid: wacc > a.tg && a.roic > 0 && (f.reinvest === 'pct' || a.inv > 0) };
+}
+// Banks, brokers and insurers: the excess return model. Interest and debt are their business, so there is no
+// enterprise value or free cash flow to the firm. Value = book equity today + the present value of profit above the cost
+// of equity. Same timing as dcf(); a.m holds the ten yearly returns on equity, a.lr the long-run one, a.inv the share of
+// profit kept (book value grows by ROE × that share), and the excess return after year ten grows at a.tg.
+function fin(f, a) {
+  var ke = f.rf + a.beta * a.erp + a.crp;
+  var d = f.date.split('-'), stub = (Date.UTC(+d[0], 11, 31) - Date.UTC(+d[0], d[1] - 1, +d[2])) / 864e5 / 365;
+  var bv = f.bv0, rows = [], pv = 0;
+  for (var i = 0; i < 10; i++) {
+    var share = i ? 1 : stub, t = i ? stub + i - 0.5 : stub / 2, ni = bv * a.m[i] * share, chg = bv * ke * share, df = 1 / Math.pow(1 + ke, t);
+    rows.push({ year: +d[0] + i, g: a.m[i] * a.inv, rev: bv, m: a.m[i], ebit: ni, nopat: ni, inv: chg, fcf: ni - chg, df: df, pv: (ni - chg) * df });
+    pv += (ni - chg) * df; bv += ni * a.inv;
+  }
+  var exT = bv * (a.lr - ke), tv = exT / (ke - a.tg), pvTv = tv / Math.pow(1 + ke, stub + 9), eq = f.bv0 + pv + pvTv;
+  return { ke: ke, wd: 0, wacc: ke, kdT: 0, revT: bv, nopatT: bv * a.lr, fcfT: exT, tv: tv, rows: rows, pv: pv, pvTv: pvTv, ev: pv + pvTv,
+           tvShare: pvTv / eq, eq: eq, value: eq / f.shares, valid: ke > a.tg };
 }
 // Moving the long-run margin moves the terminal margin and every margin from the fifth forecast year on by the same amount, as the sheets' grid does.
 function withLr(a, lr) { var dd = lr - a.lr, b = Object.assign({}, a, { lr: lr, m: a.m.slice() }); for (var i = 4; i < 10; i++) b.m[i] += dd; return b; }
@@ -484,6 +503,30 @@ function fromLive(j) {
   return co;
 }
 
+// Financials: starting assumptions from their own return on equity and payouts.
+function fromFin(j) {
+  var h = j.history, last = h[h.length - 1], n = h.length, clamp = function (v, lo, hi) { return Math.min(hi, Math.max(lo, v)); };
+  var roe = clamp(h.reduce(function (s, y) { return s + y.roe; }, 0) / n, 0, 0.4), r3 = Math.round(roe * 1000) / 1000;
+  var ni = h.reduce(function (s, y) { return s + y.ni; }, 0), kept = ni > 0 ? clamp(1 - h.reduce(function (s, y) { return s + y.paid; }, 0) / ni, 0, 1) : 0.5;
+  var beta = j.betaRaw != null ? Math.round((0.67 * j.betaRaw + 0.33) * 100) / 100 : 1;
+  var f = { kind: 'fin', date: j.priceDate, price: j.price, shares: j.shares, bv0: j.equity, rev0: last.equity, m0: last.roe, netCash: 0, debt: 0,
+            rf: j.rf, tShield: 0, reinvest: 'pct', baseLabel: 'FY' + last.end.slice(0, 4) };
+  var co = { id: j.ticker, name: j.name, ticker: j.ticker, cur: '$', unit: 'USD millions', acc: '', fact: f, sheetValue: null, crpLabel: 'Country risk premium', live: true,
+    source: 'From SEC filings, ' + j.sector + '. Valued on book equity and return on equity (excess return model), the usual method for banks, brokers and insurers. Price at the ' + niceDate(j.priceDate) + ' close',
+    base: { beta: beta, erp: 0.045, crp: 0, kd: 0, tax: 0, taxT: 0, roic: 0, inv: Math.round(kept * 1000) / 1000, tg: 0.025, lr: r3,
+            g: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], m: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(function () { return r3; }) },
+    notes: { beta: j.betaRaw != null ? 'Default. 5-year monthly regression against the S&P 500 gives ' + j.betaRaw.toFixed(2) + '. Blended toward 1: 0.67 × raw + 0.33.' : 'Default: 1.0, the market average (not enough price history).',
+             erp: 'Default: the bundled models use 4.5%.', crp: 'None: US company.',
+             m: 'Default: the average return on equity of the last ' + n + ' fiscal years (net income ÷ book equity at the start of the year), held flat.',
+             lr: 'Default: the same average. Competition usually pulls returns toward the cost of equity over time; lower it to test that.',
+             inv: 'Default: the share of profit kept over the last ' + n + ' years: 1 − (dividends + buybacks) ÷ net income, kept between 0% and 100%. Book value grows by return on equity × this share.',
+             tg: 'Default: 2.5%, as in the bundled models. Profit above the cost of equity grows at this rate after the forecast.' } };
+  co.facts = [['Price, ' + niceDate(f.date) + ' close', money(co, f.price, 2)], ['Shares outstanding', num(f.shares, 1) + ' million'],
+              ['Book equity, ' + niceDate(j.balanceDate), num(f.bv0, 1) + ' million'], ['Price / book', (f.price * f.shares / f.bv0).toFixed(2) + '×'],
+              ['Return on equity, fiscal year to ' + niceDate(last.end), pc(last.roe)], ['Risk-free rate, US 10-year', pc(f.rf, 2)]];
+  return co;
+}
+
 // ---- formatting ----------------------------------------------------------------
 function num(v, d) { return v.toLocaleString('en-US', { maximumFractionDigits: d == null ? 0 : d }); }
 function money(c, v, d) { var s = v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); return c.cur.length > 1 ? s + ' ' + c.cur : c.cur + s; }
@@ -506,7 +549,7 @@ function all() {
   return base.concat(LIVE.filter(function (c) { return have.indexOf(c.id) < 0; }));
 }
 function byId(id) { return all().filter(function (c) { return c.id === id; })[0]; }
-var C, A, INDEX = [], CO = {}, LIVE = [];
+var C, A, INDEX = [], SKIPPED = [], CO = {}, LIVE = [];
 function Y0() { return +C.fact.date.slice(0, 4); }
 // Nightly files from tools/build_data.py. The page still works without them (e.g. opened from disk).
 function loadCo(t) {
@@ -517,14 +560,14 @@ function loadCo(t) {
 function loadLive(t) {
   say('Loading ' + t + ' from SEC filings…');
   loadCo(t).then(function (j) {
-    var co = fromLive(j); LIVE = LIVE.filter(function (c) { return c.id !== co.id; }).concat(co);
+    var co = j.kind === 'fin' ? fromFin(j) : fromLive(j); LIVE = LIVE.filter(function (c) { return c.id !== co.id; }).concat(co);
     document.getElementById('q').value = ''; choose(co.id);
     say('Loaded ' + co.name + '. Reported figures are locked; the assumptions are defaults from its own history, so set them before trusting the value.');
   }).catch(function () { CO[t] = null; say('Could not load ' + t + '. Check your connection and try again.', 1); });
 }
 fetch('data/index.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
   if (!j) return;
-  INDEX = j.companies;
+  INDEX = j.companies; SKIPPED = j.skipped || [];
   if (START && !byId(START) && INDEX.some(function (x) { return x[0] === START; })) loadLive(START); else if (C) choose(C.id);
 }).catch(function () {});
 
@@ -538,7 +581,11 @@ function chips() {
       shown++;
       return '<button type="button" class="chip live" data-live="' + esc(x[0]) + '" title="Load from SEC filings">+ ' + esc(x[1]) + ' <small>' + esc(x[0]) + '</small></button>';
     }).join(''));
-  document.getElementById('none').hidden = shown > 0;
+  // S&P 500 companies the nightly build could not read: say why instead of "no match"
+  var sk = q && SKIPPED.filter(function (x) { return (x[0] + ' ' + x[1]).toLowerCase().indexOf(q) >= 0; })[0], none = document.getElementById('none');
+  none.textContent = sk ? sk[1] + ' (' + sk[0] + ') is in the S&P 500, but it can’t be loaded automatically: ' + sk[2] + '. Add it by hand with figures from its latest report.'
+    : 'No company matches. Search covers the S&P 500 (banks, brokers and insurers on book value and return on equity); for anything else, import a DCF spreadsheet or add it by hand.';
+  none.hidden = shown > 0 && !sk;
 }
 function choose(id) {
   C = byId(id) || all()[0];
@@ -586,6 +633,17 @@ function years(k, what) {
   return h + '</div>' + (C.notes[k] ? '<p class="gnote">' + esc(C.notes[k]) + '</p>' : '');
 }
 function buildForm() {
+  document.getElementById('xlsx').hidden = C.fact.kind === 'fin';  // the Excel template is the cash-flow model
+  if (C.fact.kind === 'fin') {
+    document.getElementById('form').innerHTML =
+      '<div class="grp"><h3>Cost of equity</h3>' + field('beta', 'Beta', 'x') + field('erp', 'Equity risk premium', 'pct') +
+        field('crp', esc(C.crpLabel), 'pct') + '<div id="waccbox" style="margin-top:8px"></div></div>' +
+      '<div class="grp"><h3>Return on equity</h3>' + years('m', 'Return on equity') + '</div>' +
+      '<div class="grp"><h3>Long run and terminal value</h3>' +
+        field('lr', 'Long-run return on equity', 'pct', 'Changing it moves ' + (Y0() + 4) + '–' + (Y0() + 9) + ' and the terminal value together.') +
+        field('inv', 'Share of profit kept', 'pct') + field('tg', 'Terminal growth', 'pct') + '</div>';
+    return;
+  }
   var inv = C.fact.reinvest === 'pct' ? ['inv', 'Net investment, % of revenue', 'pct'] : ['inv', 'Sales-to-capital ratio', 'x'];
   document.getElementById('form').innerHTML =
     '<div class="grp"><h3>Cost of capital (WACC)</h3>' + field('beta', 'Beta', 'x') + field('erp', 'Equity risk premium', 'pct') +
@@ -608,7 +666,16 @@ function syncInputs() {
 
 // ---- results -----------------------------------------------------------------------
 function render() {
-  var f = C.fact, r = dcf(f, A), b = dcf(f, C.base), ok = r.valid && isFinite(r.value), up = r.value / f.price - 1;
+  var f = C.fact, r = dcf(f, A), b = dcf(f, C.base), ok = r.valid && isFinite(r.value), up = r.value / f.price - 1, F = f.kind === 'fin';
+  // headings carry their financials wording in data-fin; the DCF wording is the inner span
+  document.querySelectorAll('[data-fin]').forEach(function (el) {
+    var sp = el.querySelector(':scope > span:last-child');
+    if (sp.dataset.dcf == null) sp.dataset.dcf = sp.textContent;
+    sp.textContent = F ? el.dataset.fin : sp.dataset.dcf;
+  });
+  document.getElementById('r-impl').textContent = F ? 'Implied long-run ROE at the price' : 'Implied long-run margin at the price';
+  document.getElementById('warn').textContent = F ? 'These assumptions cannot be valued. The cost of equity must be higher than terminal growth.'
+    : 'These assumptions cannot be valued. The discount rate must be higher than terminal growth, and the return on capital and the sales-to-capital ratio must be above zero.';
   document.getElementById('warn').classList.toggle('on', !r.valid);
   document.getElementById('coname').textContent = C.name + (C.ticker ? ' (' + C.ticker + ')' : '');
   document.getElementById('cosrc').textContent = C.source + (C.sheetValue != null ? (Math.abs(b.value - C.sheetValue) < 0.005 ? ', matches the sheet' : ', sheet shows ' + money(C, C.sheetValue, 2)) : '');
@@ -621,7 +688,8 @@ function render() {
   document.getElementById('r-diff').innerHTML = ok ? (Math.abs(dv) < 5e-5 ? 'You are on the base case' : 'Your case is <span class="' + (dv >= 0 ? 'up' : 'dn') + '">' + signed(dv) + '</span> vs base') : '';
   var im = ok ? impliedMargin(f, A) : NaN;
   document.getElementById('r-imp').textContent = !isFinite(im) ? '—' : im > 1 ? 'Over 100%' : pc(im);
-  document.getElementById('r-imps').textContent = im > 1 ? 'No margin gets there: the price needs faster growth. Yours: ' + pc(A.lr) : 'Yours: ' + pc(A.lr);
+  document.getElementById('r-imps').textContent = im > 1 ? (F ? 'No return on equity gets there. Yours: ' : 'No margin gets there: the price needs faster growth. Yours: ') + pc(A.lr) : 'Yours: ' + pc(A.lr);
+  if (F) return renderFin(f, r, ok);
 
   var iw = ok ? impliedWacc(f, A) : NaN, iws = !ok ? '—' : isFinite(iw) ? pc(iw, 2) : 'Below terminal growth';
   document.getElementById('waccbox').innerHTML =
@@ -684,11 +752,18 @@ function render() {
       hl('Net investment, % of revenue', gap(function (y) { return pc(ni(y) / y.revenue); })) + '</tbody>';
   }
 
-  grid('sens', 'margin', A.lr, [-0.05, -0.025, 0, 0.025, 0.05], 1, function (a, v) { return withLr(a, v); });
+  sensGrids(f, r);
+  document.querySelectorAll('.f[data-k]').forEach(function (el) { el.classList.toggle('chg', Math.abs(A[el.dataset.k] - C.base[el.dataset.k]) > 1e-9); });
+  document.querySelectorAll('.yr').forEach(function (el) { el.classList.toggle('chg', Math.abs(A[el.dataset.k][+el.dataset.i] - C.base[el.dataset.k][+el.dataset.i]) > 1e-9); });
+  comps(ok ? r.value : null);
+}
+function sensGrids(f, r) {
+  var F = f.kind === 'fin';
+  grid('sens', F ? 'ROE' : 'margin', A.lr, [-0.05, -0.025, 0, 0.025, 0.05], 1, function (a, v) { return withLr(a, v); });
   grid('sens2', 'growth', A.tg, [-0.01, -0.005, 0, 0.005, 0.01], 2, function (a, v) { return Object.assign({}, a, { tg: v }); });
   function grid(id, what, base, steps, d, apply) {
     var ws = [-0.015, -0.0075, 0, 0.0075, 0.015], best = null, cells = [];
-    var h = '<thead><tr><th>WACC ↓ / ' + what + ' →</th>' + steps.map(function (s) { return '<th>' + pc(base + s, d) + '</th>'; }).join('') + '</tr></thead><tbody>';
+    var h = '<thead><tr><th>' + (F ? 'Cost of equity' : 'WACC') + ' ↓ / ' + what + ' →</th>' + steps.map(function (s) { return '<th>' + pc(base + s, d) + '</th>'; }).join('') + '</tr></thead><tbody>';
     ws.forEach(function (dw, i) {
       h += '<tr><td>' + pc(r.wacc + dw, 2) + '</td>';
       steps.forEach(function (s, j) {
@@ -703,7 +778,56 @@ function render() {
     document.querySelector('#' + id + ' [data-c="2-2"]').classList.add('on');
     if (best) document.querySelector('#' + id + ' [data-c="' + best.i + '-' + best.j + '"]').classList.add('px');
   }
+}
 
+// The financials version of steps 1–4 and the history table; the sensitivity grids and comps are shared.
+function renderFin(f, r, ok) {
+  var iw = ok ? impliedWacc(f, A) : NaN, iws = !ok ? '—' : isFinite(iw) ? pc(iw, 2) : 'Below terminal growth';
+  var rowsHtml = function (list) { return list.map(function (x) { return '<div' + (x[2] ? ' class="tot"' : '') + '><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join(''); };
+  document.getElementById('waccbox').innerHTML = '<div class="calc k"><span>Cost of equity</span><b>' + pc(r.ke, 2) + '</b></div>' +
+    '<div class="calc"><span>Implied cost of equity at the current price</span><b>' + iws + '</b></div>';
+  document.getElementById('wacc').innerHTML = rowsHtml([
+    ['<i class="lock"></i>Risk-free rate, US 10-year', pc(f.rf, 2)], ['Beta × equity risk premium', A.beta.toFixed(2) + ' × ' + pc(A.erp, 1)],
+    [esc(C.crpLabel), pc(A.crp, 2)], ['Cost of equity', pc(r.ke, 2), 1], ['Implied cost of equity at the current price', iws]]);
+  document.getElementById('tv').innerHTML = rowsHtml([
+    ['Book value, end of ' + (Y0() + 9), mil(r.revT)], ['Profit at ' + pc(A.lr, 1) + ' long-run ROE', mil(r.nopatT)],
+    ['Less the cost of equity, ' + pc(r.ke, 2) + ' × book value', mil(-r.revT * r.ke)], ['Profit above the cost of equity', mil(r.fcfT), 1],
+    ['Terminal value, ÷ (' + pc(r.ke, 2) + ' − ' + pc(A.tg, 1) + ')', mil(r.tv)], ['PV of terminal value', mil(r.pvTv), 1],
+    ['Terminal value as % of equity value', pc(r.tvShare, 0)],
+    ['Long-run ROE vs cost of equity', pc(A.lr, 1) + (A.lr > r.ke + 5e-4 ? ' > ' : A.lr < r.ke - 5e-4 ? ' < ' : ' ≈ ') + pc(r.ke, 1)],
+    ['So the stock is worth', A.lr > r.ke + 5e-4 ? 'more than book value' : A.lr < r.ke - 5e-4 ? 'less than book value' : 'about book value']]);
+  document.getElementById('cur-note').textContent = C.unit + ', valued at ' + niceDate(f.date);
+  document.getElementById('bridge').innerHTML = rowsHtml([
+    ['<i class="lock"></i>Book equity today', mil(f.bv0)], ['Plus PV of profit above the cost of equity, ' + Y0() + '–' + (Y0() + 9), mil(r.pv)],
+    ['Plus PV of terminal value', mil(r.pvTv)], ['Equity value', mil(r.eq), 1], ['Shares outstanding (million)', num(f.shares, 1)],
+    ['Intrinsic value per share', ok ? money(C, r.value, 2) : '—', 1], ['Price / book at your value', ok ? (r.eq / f.bv0).toFixed(2) + '×' : '—']]);
+  document.getElementById('facts-note').textContent = 'From the latest SEC filings and market close, refreshed every weeknight.';
+  document.getElementById('facts').innerHTML = C.facts.map(function (x) { return '<div><span>' + esc(x[0]) + '</span><b>' + esc(x[1]) + '</b></div>'; }).join('');
+  document.getElementById('unit-note').textContent = C.unit + '. Each year: book value at the start × return on equity = profit; less the cost of equity on that book value = profit above the cost of equity. ' +
+    'Kept profit (share kept × profit) adds to book value. ' + Y0() + ' counts only the part of the year after the valuation date.';
+  var T = { year: 'Terminal', g: null, rev: r.revT, m: A.lr, ebit: r.nopatT, inv: r.revT * r.ke, fcf: r.fcfT, pv: null };
+  var R = r.rows.concat(T), th = '<thead><tr><th></th><th class="act">' + f.baseLabel + '</th>' + R.map(function (x) { return '<th' + (x === T ? ' class="term"' : '') + '>' + (x === T ? 'Terminal' : x.year + 'E') + '</th>'; }).join('') + '</tr></thead>';
+  var line = function (lb, a0, fn, em) { return '<tr' + (em ? ' class="em"' : '') + '><td>' + lb + '</td><td class="act">' + a0 + '</td>' + R.map(function (x) { return '<td' + (x === T ? ' class="term"' : '') + '>' + fn(x) + '</td>'; }).join('') + '</tr>'; };
+  document.getElementById('proj').innerHTML = th + '<tbody>' +
+    line('Book value, start of year', '', function (x) { return mil(x.rev); }) +
+    line('Return on equity', pc(f.m0), function (x) { return pc(x.m); }) +
+    line('Net income', '', function (x) { return mil(x.ebit); }) +
+    line('Less cost of equity × book value', '', function (x) { return mil(-x.inv); }) +
+    line('Profit above the cost of equity', '', function (x) { return mil(x.fcf); }, 1) +
+    line('Book value growth (ROE × share kept)', '', function (x) { return x.g == null ? '' : pc(x.g); }) +
+    line('Discount factor, mid-year', '', function (x) { return x.pv == null ? '' : x.df.toFixed(3); }) +
+    line('PV', '', function (x) { return x.pv == null ? 'Step 3' : mil(x.pv); }) + '</tbody>';
+  var J = CO[C.ticker] && CO[C.ticker].done, H = J && J.history;
+  document.getElementById('hist').hidden = !H;
+  if (H) {
+    document.getElementById('hist-note').textContent = 'Fiscal years as reported in each 10-K (' + C.unit + '). Return on equity is net income ÷ book equity at the start of the year. Paid out is dividends plus buybacks.';
+    var hl = function (lb, fn) { return '<tr><td>' + lb + '</td>' + H.map(function (y) { return '<td>' + fn(y) + '</td>'; }).join('') + '</tr>'; };
+    document.getElementById('histt').innerHTML = '<thead><tr><th></th>' + H.map(function (y) { return '<th>FY ending ' + y.end.slice(0, 7) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      hl('Net income', function (y) { return mil(y.ni); }) + hl('Book equity, year end', function (y) { return mil(y.equity); }) +
+      hl('Return on equity', function (y) { return pc(y.roe); }) + hl('Paid out (dividends + buybacks)', function (y) { return mil(y.paid); }) +
+      hl('Share of profit kept', function (y) { return y.ni > 0 ? pc(1 - y.paid / y.ni) : '—'; }) + '</tbody>';
+  }
+  sensGrids(f, r);
   document.querySelectorAll('.f[data-k]').forEach(function (el) { el.classList.toggle('chg', Math.abs(A[el.dataset.k] - C.base[el.dataset.k]) > 1e-9); });
   document.querySelectorAll('.yr').forEach(function (el) { el.classList.toggle('chg', Math.abs(A[el.dataset.k][+el.dataset.i] - C.base[el.dataset.k][+el.dataset.i]) > 1e-9); });
   comps(ok ? r.value : null);
@@ -723,10 +847,13 @@ function defaultPeers(t) {
 }
 function peers() { return store('peers:' + C.id) || defaultPeers(C.ticker); }
 // Last fiscal year from the 10-K, price from the latest close. A multiple on a loss (or a missing figure) is left out.
+// Financials have no enterprise value (their debt is the business), so only P/E and P/B.
 function multiples(j) {
-  var y = j.history[j.history.length - 1], mcap = j.price * j.shares, ev = mcap + j.debt - j.cash, ebitda = y.da ? y.ebit + y.da : null;
-  var per = function (a, b) { return b > 0 ? a / b : null; };
-  return { mcap: mcap, ev: ev, rev: y.revenue, ebitda: ebitda, ni: y.ni, end: y.end, evRev: per(ev, y.revenue), evEbitda: per(ev, ebitda), pe: y.ni == null ? null : per(mcap, y.ni) };
+  var y = j.history[j.history.length - 1], mcap = j.price * j.shares, per = function (a, b) { return b > 0 ? a / b : null; };
+  var pb = j.equity > 0 ? mcap / j.equity : null;
+  if (j.kind === 'fin') return { mcap: mcap, bv: j.equity, ni: y.ni, end: y.end, evRev: null, evEbitda: null, pe: per(mcap, y.ni), pb: pb };
+  var ev = mcap + j.debt - j.cash, ebitda = y.da ? y.ebit + y.da : null;
+  return { mcap: mcap, ev: ev, rev: y.revenue, ebitda: ebitda, ni: y.ni, bv: j.equity, end: y.end, evRev: per(ev, y.revenue), evEbitda: per(ev, ebitda), pe: y.ni == null ? null : per(mcap, y.ni), pb: pb };
 }
 function median(xs) {
   xs = xs.filter(function (v) { return v != null; }).sort(function (a, b) { return a - b; });
@@ -743,12 +870,12 @@ function comps(dcfValue) {
   Promise.all([t].concat(list).map(function (p) { return loadCo(p).catch(function () { CO[p] = null; return null; }); })).then(function (js) {
     if (C !== co) return;
     var me = js[0] && multiples(js[0]), ps = list.map(function (p, i) { return js[i + 1] && { t: p, m: multiples(js[i + 1]) }; }).filter(Boolean);
-    var med = { evRev: median(ps.map(function (p) { return p.m.evRev; })), evEbitda: median(ps.map(function (p) { return p.m.evEbitda; })), pe: median(ps.map(function (p) { return p.m.pe; })) };
+    var med = { evRev: median(ps.map(function (p) { return p.m.evRev; })), evEbitda: median(ps.map(function (p) { return p.m.evEbitda; })), pe: median(ps.map(function (p) { return p.m.pe; })), pb: median(ps.map(function (p) { return p.m.pb; })) };
     var x = function (v) { return v == null ? '—' : v.toFixed(1) + '×'; }, sub = (row(t) || [])[3];
     var line = function (cls, name, m, end) {
-      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + name + '</td><td>' + (m && m.mcap ? num(m.mcap / 1000, 1) : '') + '</td><td>' + x(m && m.evRev) + '</td><td>' + x(m && m.evEbitda) + '</td><td>' + x(m && m.pe) + '</td><td>' + end + '</td></tr>';
+      return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + name + '</td><td>' + (m && m.mcap ? num(m.mcap / 1000, 1) : '') + '</td><td>' + x(m && m.evRev) + '</td><td>' + x(m && m.evEbitda) + '</td><td>' + x(m && m.pe) + '</td><td>' + x(m && m.pb) + '</td><td>' + end + '</td></tr>';
     };
-    document.getElementById('comps').innerHTML = '<thead><tr><th>Company</th><th>Market value, $bn</th><th>EV / revenue</th><th>EV / EBITDA</th><th>P / E</th><th><span class="vh">Remove</span></th></tr></thead><tbody>' +
+    document.getElementById('comps').innerHTML = '<thead><tr><th>Company</th><th>Market value, $bn</th><th>EV / revenue</th><th>EV / EBITDA</th><th>P / E</th><th>P / B</th><th><span class="vh">Remove</span></th></tr></thead><tbody>' +
       ps.map(function (p) {
         var r0 = row(p.t);
         return line('', esc(p.t) + '<small>' + esc(r0 ? r0[1] : '') + (r0 && r0[3] !== sub ? ', ' + esc(r0[3]) : '') + '</small>', p.m,
@@ -759,14 +886,14 @@ function comps(dcfValue) {
     document.getElementById('comps-note').textContent = !ps.length ? 'No peers yet: add some below.'
       : 'Peers in the same industry (' + sub + '), closest in market value; others are marked with their industry. Multiples use each company’s last fiscal year from its 10-K and the latest close. Losses are left out of the medians.';
     var f = co.fact, val = function (m, v, bridge) { return m == null || v == null || !(v > 0) ? null : (bridge ? m * v + f.netCash : m * v) / f.shares; };
-    var vs = [['EV / revenue', med.evRev, me && me.rev, 1], ['EV / EBITDA', med.evEbitda, me && me.ebitda, 1], ['P / E (net income, no bridge)', med.pe, me && me.ni, 0]]
+    var vs = [['EV / revenue', med.evRev, me && me.rev, 1], ['EV / EBITDA', med.evEbitda, me && me.ebitda, 1], ['P / E (net income, no bridge)', med.pe, me && me.ni, 0], ['P / B (book equity, no bridge)', med.pb, me && me.bv, 0]]
       .map(function (q) { return [q[0], q[1], val(q[1], q[2], q[3])]; });
     var got = vs.filter(function (q) { return q[2] != null; }).map(function (q) { return q[2]; });
     var lo = Math.min.apply(null, got), hi = Math.max.apply(null, got);
     document.getElementById('comps-val').innerHTML = vs.map(function (q) {
       return '<div><span>' + q[0] + (q[1] != null ? ', ' + x(q[1]) : '') + '</span><b>' + (q[2] == null ? '—' : money(co, q[2], 2)) + '</b></div>';
     }).join('') + (got.length ? '<div class="tot"><span>Range from comps</span><b>' + money(co, lo, 2) + (got.length > 1 ? ' to ' + money(co, hi, 2) : '') + '</b></div>' : '') +
-      '<div><span>Your DCF value' + (dcfValue == null || !got.length ? '' : dcfValue < lo ? ', below the comps range' : dcfValue > hi ? ', above the comps range' : ', inside the comps range') + '</span><b>' + (dcfValue == null ? '—' : money(co, dcfValue, 2)) + '</b></div>';
+      '<div><span>' + (co.fact.kind === 'fin' ? 'Your excess return value' : 'Your DCF value') + (dcfValue == null || !got.length ? '' : dcfValue < lo ? ', below the comps range' : dcfValue > hi ? ', above the comps range' : ', inside the comps range') + '</span><b>' + (dcfValue == null ? '—' : money(co, dcfValue, 2)) + '</b></div>';
   });
 }
 
