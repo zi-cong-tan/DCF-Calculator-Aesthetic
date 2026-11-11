@@ -397,7 +397,7 @@ function short(t) {
 }
 function factRows(co) {
   var f = co.fact;
-  return [['Price, ' + niceDate(f.date), money(co, f.price, 2)], ['Shares outstanding', num(f.shares, 1) + ' million'], ['Last full-year revenue', num(f.rev0, 1) + ' million'],
+  return [['Price, ' + niceDate(f.pxDate || f.date), money(co, f.price, 2)], ['Shares outstanding', num(f.shares, 1) + ' million'], ['Last full-year revenue', num(f.rev0, 1) + ' million'],
           ['Last full-year operating margin', pc(f.m0)], [f.netCash < 0 ? 'Net debt' : 'Net cash', num(Math.abs(f.netCash), 1) + ' million'],
           ['Total debt (for the debt weight)', num(f.debt, 1) + ' million'], ['Risk-free rate, US 10-year', pc(f.rf, 2)], ['Tax saving on interest', pc(f.tShield, 0)]];
 }
@@ -565,6 +565,18 @@ function loadLive(t) {
     say('Loaded ' + co.name + '. Reported figures are locked; the assumptions are defaults from its own history, so set them before trusting the value.');
   }).catch(function () { CO[t] = null; say('Could not load ' + t + '. Check your connection and try again.', 1); });
 }
+// Bundled examples keep their sourced assumptions but take the nightly close, like searched companies.
+LIST.forEach(function (co) {
+  loadCo(co.ticker).then(function (j) {
+    var f = co.fact; if (!j.price) return;
+    f.price = j.price; f.pxDate = j.priceDate;
+    // ponytail: valuation date only moves within the model's base year; in a new year the forecast needs rebuilding
+    if (j.priceDate.slice(0, 4) === f.date.slice(0, 4)) f.date = j.priceDate;
+    co.facts = factRows(co); co.facts[0][0] += ' close'; co.sheetValue = null;
+    co.source = 'Bundled example, assumptions as of October 14, 2026';
+    if (C && C.id === co.id) choose(co.id);
+  }).catch(function () {});
+});
 fetch('data/index.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
   if (!j) return;
   INDEX = j.companies; SKIPPED = j.skipped || [];
@@ -682,7 +694,7 @@ function render() {
   document.getElementById('r-val').textContent = ok ? money(C, r.value, 2) : '—';
   document.getElementById('r-vs').innerHTML = ok ? (up >= 0 ? 'Above' : 'Below') + ' the price by <b>' + pc(Math.abs(up)) + '</b>' : 'Check the warning';
   document.getElementById('r-px').textContent = money(C, f.price, 2);
-  document.getElementById('r-pxs').textContent = niceDate(f.date);
+  document.getElementById('r-pxs').textContent = niceDate(f.pxDate || f.date);
   document.getElementById('r-base').textContent = b.valid ? money(C, b.value, 2) : '—';
   var dv = r.value / b.value - 1;
   document.getElementById('r-diff').innerHTML = ok ? (Math.abs(dv) < 5e-5 ? 'You are on the base case' : 'Your case is <span class="' + (dv >= 0 ? 'up' : 'dn') + '">' + signed(dv) + '</span> vs base') : '';
